@@ -5,10 +5,12 @@ This module contains the different implementations of GATree for various machine
 - GATreeClassifier: For classification tasks
 - GATreeClustering: For clustering tasks  
 - GATreeRegressor: For regression tasks
+- GATreeActionSelector: For sequential action selection in time series
 """
 
 from .gatreeclassifier import GATreeClassifier
 from .gatreeclustering import GATreeClustering
 from .gatreeregressor import GATreeRegressor
+from .gatreeactionselector import GATreeActionSelector
 
-__all__ = ['GATreeClassifier', 'GATreeClustering', 'GATreeRegressor']
+__all__ = ['GATreeClassifier', 'GATreeClustering', 'GATreeRegressor', 'GATreeActionSelector']
