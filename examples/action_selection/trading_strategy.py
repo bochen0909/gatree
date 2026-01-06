@@ -171,73 +171,119 @@ def main():
         selection_tournament_size=3
     )
     
-    # Test the strategy
-    print("\nTesting trading strategy...")
+    # Evaluate the strategy on both train and test data
+    print("\nEvaluating trading strategy...")
     
-    # Simulate trading on test data
-    total_reward, individual_rewards, actions = selector.simulate_rewards(
+    # Evaluate on training data
+    print("Evaluating on training data...")
+    train_total_reward, train_individual_rewards, train_actions = selector.simulate_rewards(
+        X_train_scaled, Y_train, trading_reward_function
+    )
+    train_action_distribution = selector.get_action_distribution(X_train_scaled)
+    
+    # Evaluate on test data
+    print("Evaluating on test data...")
+    test_total_reward, test_individual_rewards, test_actions = selector.simulate_rewards(
         X_test_scaled, Y_test, trading_reward_function
     )
-    
-    # Calculate performance metrics
-    action_distribution = selector.get_action_distribution(X_test_scaled)
+    test_action_distribution = selector.get_action_distribution(X_test_scaled)
     
     print("\nTrading Results:")
-    print("=" * 30)
-    print(f"Total reward: {total_reward:.4f}")
-    print(f"Average reward per timestep: {total_reward / len(X_test):.4f}")
-    print(f"Number of timesteps: {len(X_test)}")
+    print("=" * 40)
     
-    print(f"\nAction Distribution:")
-    for action, count in action_distribution.items():
-        percentage = (count / len(actions)) * 100
-        print(f"  {action}: {count} times ({percentage:.1f}%)")
+    # Training results
+    print("TRAINING SET:")
+    print(f"  Total reward: {train_total_reward:.4f}")
+    print(f"  Average reward per timestep: {train_total_reward / len(X_train):.4f}")
+    print(f"  Number of timesteps: {len(X_train)}")
     
-    # Show sample trading decisions
-    print(f"\nSample Trading Decisions:")
+    # Test results
+    print("TEST SET:")
+    print(f"  Total reward: {test_total_reward:.4f}")
+    print(f"  Average reward per timestep: {test_total_reward / len(X_test):.4f}")
+    print(f"  Number of timesteps: {len(X_test)}")
+    
+    # Performance comparison
+    train_avg_reward = train_total_reward / len(X_train)
+    test_avg_reward = test_total_reward / len(X_test)
+    generalization_gap = train_avg_reward - test_avg_reward
+    generalization_ratio = test_avg_reward / train_avg_reward if train_avg_reward != 0 else 0
+    
+    print(f"\nGENERALIZATION ANALYSIS:")
+    print(f"  Generalization gap: {generalization_gap:.4f}")
+    print(f"  Test/Train ratio: {generalization_ratio:.3f}")
+    if generalization_ratio > 0.9:
+        print("  → Excellent generalization")
+    elif generalization_ratio > 0.8:
+        print("  → Good generalization")
+    elif generalization_ratio > 0.7:
+        print("  → Moderate generalization")
+    else:
+        print("  → Poor generalization (possible overfitting)")
+
+    print(f"\nAction Distribution Comparison:")
+    print("Action\tTrain\tTest\tDifference")
+    print("-" * 35)
+    for action in ['buy', 'sell', 'hold']:
+        train_count = train_action_distribution.get(action, 0)
+        test_count = test_action_distribution.get(action, 0)
+        train_pct = (train_count / len(train_actions)) * 100
+        test_pct = (test_count / len(test_actions)) * 100
+        diff = test_pct - train_pct
+        print(f"{action}\t{train_pct:.1f}%\t{test_pct:.1f}%\t{diff:+.1f}%")
+    
+    # Show sample trading decisions from test set
+    print(f"\nSample Test Set Trading Decisions:")
     print("-" * 50)
     print("Timestep\tPrice\tAction\tReward\tNext Price")
-    for i in range(min(10, len(actions))):
+    for i in range(min(10, len(test_actions))):
         idx = train_size + i
         current_price = price_data.iloc[idx]['current_price']
         next_price = price_data.iloc[idx]['next_price']
-        action = actions[i]
-        reward = individual_rewards[i]
+        action = test_actions[i]
+        reward = test_individual_rewards[i]
         print(f"{i+1}\t\t{current_price:.2f}\t{action}\t{reward:.4f}\t{next_price:.2f}")
     
-    # Compare with simple strategies
+    # Compare with simple strategies on both datasets
     print(f"\nStrategy Comparison:")
-    print("-" * 30)
+    print("-" * 50)
     
-    # Always buy strategy
-    buy_rewards = []
-    for i in range(len(X_test)):
-        idx = train_size + i
-        reward = trading_reward_function(
-            X_test.iloc[i], 'buy', Y_test.iloc[i], i
-        )
-        buy_rewards.append(reward)
-    buy_total = sum(buy_rewards)
+    def evaluate_baseline_strategy(X_data, Y_data, action, strategy_name):
+        rewards = []
+        for i in range(len(X_data)):
+            reward = trading_reward_function(
+                X_data.iloc[i], action, Y_data.iloc[i], i
+            )
+            rewards.append(reward)
+        return sum(rewards)
     
-    # Always hold strategy
-    hold_rewards = []
-    for i in range(len(X_test)):
-        idx = train_size + i
-        reward = trading_reward_function(
-            X_test.iloc[i], 'hold', Y_test.iloc[i], i
-        )
-        hold_rewards.append(reward)
-    hold_total = sum(hold_rewards)
+    # Training baselines
+    train_buy_total = evaluate_baseline_strategy(X_train, Y_train, 'buy', "Always Buy")
+    train_hold_total = evaluate_baseline_strategy(X_train, Y_train, 'hold', "Always Hold")
+    train_sell_total = evaluate_baseline_strategy(X_train, Y_train, 'sell', "Always Sell")
     
-    print(f"GATree Strategy: {total_reward:.4f}")
-    print(f"Always Buy: {buy_total:.4f}")
-    print(f"Always Hold: {hold_total:.4f}")
+    # Test baselines
+    test_buy_total = evaluate_baseline_strategy(X_test, Y_test, 'buy', "Always Buy")
+    test_hold_total = evaluate_baseline_strategy(X_test, Y_test, 'hold', "Always Hold")
+    test_sell_total = evaluate_baseline_strategy(X_test, Y_test, 'sell', "Always Sell")
     
-    improvement_vs_buy = ((total_reward - buy_total) / abs(buy_total)) * 100 if buy_total != 0 else 0
-    improvement_vs_hold = ((total_reward - hold_total) / abs(hold_total)) * 100 if hold_total != 0 else 0
+    print("Strategy\t\tTrain\t\tTest\t\tGeneralization")
+    print("-" * 65)
+    print(f"GATree\t\t\t{train_total_reward:.4f}\t\t{test_total_reward:.4f}\t\t{test_total_reward/train_total_reward:.3f}")
+    print(f"Always Buy\t\t{train_buy_total:.4f}\t\t{test_buy_total:.4f}\t\t{test_buy_total/train_buy_total:.3f}")
+    print(f"Always Hold\t\t{train_hold_total:.4f}\t\t{test_hold_total:.4f}\t\t{test_hold_total/train_hold_total:.3f}")
+    print(f"Always Sell\t\t{train_sell_total:.4f}\t\t{test_sell_total:.4f}\t\t{test_sell_total/train_sell_total:.3f}")
     
-    print(f"Improvement vs Always Buy: {improvement_vs_buy:.1f}%")
-    print(f"Improvement vs Always Hold: {improvement_vs_hold:.1f}%")
+    # Best baseline comparison
+    best_train_baseline = max(train_buy_total, train_hold_total, train_sell_total)
+    best_test_baseline = max(test_buy_total, test_hold_total, test_sell_total)
+    
+    train_improvement = ((train_total_reward - best_train_baseline) / abs(best_train_baseline)) * 100 if best_train_baseline != 0 else 0
+    test_improvement = ((test_total_reward - best_test_baseline) / abs(best_test_baseline)) * 100 if best_test_baseline != 0 else 0
+    
+    print(f"\nImprovement vs best baseline:")
+    print(f"  Training: {train_improvement:.1f}%")
+    print(f"  Test: {test_improvement:.1f}%")
     
     # Show training evolution
     print(f"\nTraining Evolution:")
@@ -257,16 +303,16 @@ def main():
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
         
-        # Price and actions
+        # Price and actions (Test Set)
         test_indices = range(len(X_test))
         test_prices = Y_test['current_price'].values
         
         ax1.plot(test_indices, test_prices, label='Price', color='black', alpha=0.7)
         
         # Color-code actions
-        buy_indices = [i for i, a in enumerate(actions) if a == 'buy']
-        sell_indices = [i for i, a in enumerate(actions) if a == 'sell']
-        hold_indices = [i for i, a in enumerate(actions) if a == 'hold']
+        buy_indices = [i for i, a in enumerate(test_actions) if a == 'buy']
+        sell_indices = [i for i, a in enumerate(test_actions) if a == 'sell']
+        hold_indices = [i for i, a in enumerate(test_actions) if a == 'hold']
         
         if buy_indices:
             ax1.scatter([test_indices[i] for i in buy_indices], 
@@ -283,16 +329,20 @@ def main():
         
         ax1.set_xlabel('Timestep')
         ax1.set_ylabel('Price')
-        ax1.set_title('Trading Actions vs Price')
+        ax1.set_title('Test Set: Trading Actions vs Price')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # Cumulative rewards
-        cumulative_rewards = np.cumsum(individual_rewards)
-        ax2.plot(test_indices, cumulative_rewards, color='blue')
+        # Cumulative rewards comparison
+        train_cumulative = np.cumsum(train_individual_rewards)
+        test_cumulative = np.cumsum(test_individual_rewards)
+        
+        ax2.plot(range(len(train_cumulative)), train_cumulative, label='Train', color='green', alpha=0.8)
+        ax2.plot(range(len(test_cumulative)), test_cumulative, label='Test', color='orange', alpha=0.8)
         ax2.set_xlabel('Timestep')
         ax2.set_ylabel('Cumulative Reward')
-        ax2.set_title('Cumulative Reward Over Time')
+        ax2.set_title('Cumulative Reward: Train vs Test')
+        ax2.legend()
         ax2.grid(True, alpha=0.3)
         
         # Training evolution
@@ -303,14 +353,22 @@ def main():
         ax3.legend()
         ax3.grid(True, alpha=0.3)
         
-        # Action distribution
-        actions_list = list(action_distribution.keys())
-        counts = list(action_distribution.values())
-        colors = ['green', 'red', 'gray']
-        ax4.bar(actions_list, counts, color=colors[:len(actions_list)])
+        # Action distribution comparison
+        actions_list = ['buy', 'sell', 'hold']
+        train_counts = [train_action_distribution.get(action, 0) for action in actions_list]
+        test_counts = [test_action_distribution.get(action, 0) for action in actions_list]
+        
+        x = np.arange(len(actions_list))
+        width = 0.35
+        
+        ax4.bar(x - width/2, train_counts, width, label='Train', color='lightblue', alpha=0.7)
+        ax4.bar(x + width/2, test_counts, width, label='Test', color='orange', alpha=0.7)
         ax4.set_xlabel('Action')
         ax4.set_ylabel('Frequency')
-        ax4.set_title('Action Distribution')
+        ax4.set_title('Action Distribution: Train vs Test')
+        ax4.set_xticks(x)
+        ax4.set_xticklabels(actions_list)
+        ax4.legend()
         ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()

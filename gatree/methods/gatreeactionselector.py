@@ -92,9 +92,6 @@ class GATreeActionSelector(GATree, BaseEstimator):
         Returns:
             float: Fitness value (lower is better, so we negate rewards)
         """
-        if len(root.y_pred) == 0:
-            return float('inf')  # Invalid tree
-        
         total_reward = 0.0
         
         # Simulate action sequence and calculate rewards
@@ -211,8 +208,14 @@ class GATreeActionSelector(GATree, BaseEstimator):
             self._best_fitness.append(best_fitness)
             self._avg_fitness.append(avg_fitness)
             
-            # Calculate and log best reward (negative of fitness + complexity penalty)
-            best_reward = -best_fitness + (0.001 * population[0].size())
+            # Calculate and log best reward 
+            # Fitness = -total_reward + complexity_penalty
+            # So: total_reward = -fitness + complexity_penalty
+            if best_fitness != float('inf'):
+                complexity_penalty = 0.001 * population[0].size()
+                best_reward = -best_fitness + complexity_penalty
+            else:
+                best_reward = float('-inf')  # Invalid tree
             self._best_rewards.append(best_reward)
 
             if i != max_iter:

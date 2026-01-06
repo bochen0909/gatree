@@ -88,20 +88,21 @@ def generate_resource_demand_data(n_timesteps=250, random_state=42):
     return features, cost_data
 
 
-def resource_allocation_reward(state, action, cost_data, timestep):
+def resource_allocation_reward(state, action, cost_data, timestep, allocation_multiplier=5):
     """
     Calculate reward for a resource allocation action.
     
     Args:
         state: Current system state (feature vector)
-        action: Resource allocation level (0-5)
+        action: Resource allocation level (0-5, multiplied by allocation_multiplier)
         cost_data: Cost and demand information
         timestep: Current timestep
+        allocation_multiplier: Multiplier for actual resource units
     
     Returns:
         float: Reward for the allocation decision
     """
-    allocation = action
+    allocation = action * allocation_multiplier  # Convert action to actual allocation
     demand = cost_data['actual_demand']
     unit_cost = cost_data['unit_cost']
     satisfaction_value = cost_data['satisfaction_value']
@@ -170,17 +171,24 @@ def main():
     X_test_scaled = X_test.copy()
     X_test_scaled[feature_cols] = scaler.transform(X_test[feature_cols])
     
-    # Define action space (resource allocation levels)
-    action_space = [0, 1, 2, 3, 4, 5]  # 0 to 5 units of resources
+    # Define action space (resource allocation levels with multiplier)
+    action_space = [0, 1, 2, 3, 4, 5]  # Base allocation levels
+    allocation_multiplier = 5  # Each action represents 5 units
+    
+    print(f"Action space: {action_space} (each unit = {allocation_multiplier} resources)")
+    print(f"Effective allocation range: 0 to {max(action_space) * allocation_multiplier} units")
     
     # Create and train the action selector
     print(f"\nTraining GATree Action Selector...")
-    print(f"Action space: {action_space} (resource units)")
     print("Parameters: population_size=40, max_iter=60, max_depth=7")
+    
+    # Create a wrapper function that includes the multiplier
+    def reward_function_with_multiplier(state, action, cost_data, timestep):
+        return resource_allocation_reward(state, action, cost_data, timestep, allocation_multiplier)
     
     selector = GATreeActionSelector(
         action_space=action_space,
-        reward_function=resource_allocation_reward,
+        reward_function=reward_function_with_multiplier,
         max_depth=7,
         discount_factor=0.95,  # Moderate discount for future rewards
         n_jobs=2,
@@ -198,104 +206,169 @@ def main():
         selection_tournament_size=4
     )
     
-    # Test the allocation strategy
-    print("\nTesting resource allocation strategy...")
+    # Evaluate the allocation strategy on both train and test data
+    print("\nEvaluating resource allocation strategy...")
     
-    # Simulate allocation decisions on test data
-    total_reward, individual_rewards, actions = selector.simulate_rewards(
-        X_test_scaled, Y_test, resource_allocation_reward
+    # Evaluate on training data
+    print("Evaluating on training data...")
+    train_total_reward, train_individual_rewards, train_actions = selector.simulate_rewards(
+        X_train_scaled, Y_train, reward_function_with_multiplier
     )
+    train_action_distribution = selector.get_action_distribution(X_train_scaled)
     
-    # Calculate performance metrics
-    action_distribution = selector.get_action_distribution(X_test_scaled)
+    # Evaluate on test data
+    print("Evaluating on test data...")
+    test_total_reward, test_individual_rewards, test_actions = selector.simulate_rewards(
+        X_test_scaled, Y_test, reward_function_with_multiplier
+    )
+    test_action_distribution = selector.get_action_distribution(X_test_scaled)
     
     print("\nAllocation Results:")
-    print("=" * 35)
-    print(f"Total reward: {total_reward:.2f}")
-    print(f"Average reward per timestep: {total_reward / len(X_test):.4f}")
-    print(f"Number of timesteps: {len(X_test)}")
+    print("=" * 50)
     
-    print(f"\nAllocation Distribution:")
-    for action, count in action_distribution.items():
-        percentage = (count / len(actions)) * 100
-        print(f"  {action} units: {count} times ({percentage:.1f}%)")
+    # Training results
+    print("TRAINING SET:")
+    print(f"  Total reward: {train_total_reward:.2f}")
+    print(f"  Average reward per timestep: {train_total_reward / len(X_train):.4f}")
+    print(f"  Number of timesteps: {len(X_train)}")
     
-    # Calculate allocation efficiency metrics
+    # Test results
+    print("TEST SET:")
+    print(f"  Total reward: {test_total_reward:.2f}")
+    print(f"  Average reward per timestep: {test_total_reward / len(X_test):.4f}")
+    print(f"  Number of timesteps: {len(X_test)}")
+    
+    # Performance comparison
+    train_avg_reward = train_total_reward / len(X_train)
+    test_avg_reward = test_total_reward / len(X_test)
+    generalization_gap = train_avg_reward - test_avg_reward
+    generalization_ratio = test_avg_reward / train_avg_reward if train_avg_reward != 0 else 0
+    
+    print(f"\nGENERALIZATION ANALYSIS:")
+    print(f"  Generalization gap: {generalization_gap:.4f}")
+    print(f"  Test/Train ratio: {generalization_ratio:.3f}")
+    if generalization_ratio > 0.9:
+        print("  → Excellent generalization")
+    elif generalization_ratio > 0.8:
+        print("  → Good generalization")
+    elif generalization_ratio > 0.7:
+        print("  → Moderate generalization")
+    else:
+        print("  → Poor generalization (possible overfitting)")
+
+    print(f"\nAllocation Distribution Comparison:")
+    print("Action\tTrain\tTest\tDifference\tActual Units")
+    print("-" * 50)
+    for action in sorted(set(list(train_action_distribution.keys()) + list(test_action_distribution.keys()))):
+        train_count = train_action_distribution.get(action, 0)
+        test_count = test_action_distribution.get(action, 0)
+        train_pct = (train_count / len(train_actions)) * 100
+        test_pct = (test_count / len(test_actions)) * 100
+        diff = test_pct - train_pct
+        actual_units = action * allocation_multiplier
+        print(f"{action}\t{train_pct:.1f}%\t{test_pct:.1f}%\t{diff:+.1f}%\t\t{actual_units}")
+    
+    # Calculate allocation efficiency metrics for both datasets
+    def calculate_efficiency_metrics(demands, actions, dataset_name):
+        # Convert actions to actual allocations
+        allocations = [action * allocation_multiplier for action in actions]
+        
+        total_demand = sum(demands)
+        total_allocation = sum(allocations)
+        
+        satisfied_demand = sum(min(alloc, demand) for alloc, demand in zip(allocations, demands))
+        satisfaction_rate = satisfied_demand / total_demand if total_demand > 0 else 0
+        
+        over_allocation = sum(max(0, alloc - demand) for alloc, demand in zip(allocations, demands))
+        under_allocation = sum(max(0, demand - alloc) for alloc, demand in zip(allocations, demands))
+        
+        print(f"\n{dataset_name.upper()} Efficiency Metrics:")
+        print("-" * 30)
+        print(f"Total demand: {total_demand:.2f}")
+        print(f"Total allocation: {total_allocation:.2f}")
+        print(f"Satisfaction rate: {satisfaction_rate:.1%}")
+        print(f"Over-allocation: {over_allocation:.2f}")
+        print(f"Under-allocation: {under_allocation:.2f}")
+        print(f"Allocation efficiency: {satisfied_demand / total_allocation:.1%}" if total_allocation > 0 else "N/A")
+        
+        return {
+            'total_demand': total_demand,
+            'total_allocation': total_allocation,
+            'satisfaction_rate': satisfaction_rate,
+            'over_allocation': over_allocation,
+            'under_allocation': under_allocation,
+            'allocation_efficiency': satisfied_demand / total_allocation if total_allocation > 0 else 0
+        }
+    
+    # Calculate metrics for both datasets
+    train_demands = Y_train['actual_demand'].values
     test_demands = Y_test['actual_demand'].values
-    allocations = actions
     
-    # Satisfaction metrics
-    total_demand = sum(test_demands)
-    total_allocation = sum(allocations)
+    train_metrics = calculate_efficiency_metrics(train_demands, train_actions, "Training")
+    test_metrics = calculate_efficiency_metrics(test_demands, test_actions, "Test")
     
-    satisfied_demand = sum(min(alloc, demand) for alloc, demand in zip(allocations, test_demands))
-    satisfaction_rate = satisfied_demand / total_demand if total_demand > 0 else 0
-    
-    over_allocation = sum(max(0, alloc - demand) for alloc, demand in zip(allocations, test_demands))
-    under_allocation = sum(max(0, demand - alloc) for alloc, demand in zip(allocations, test_demands))
-    
-    print(f"\nEfficiency Metrics:")
-    print("-" * 25)
-    print(f"Total demand: {total_demand:.2f}")
-    print(f"Total allocation: {total_allocation:.2f}")
-    print(f"Satisfaction rate: {satisfaction_rate:.1%}")
-    print(f"Over-allocation: {over_allocation:.2f}")
-    print(f"Under-allocation: {under_allocation:.2f}")
-    print(f"Allocation efficiency: {satisfied_demand / total_allocation:.1%}" if total_allocation > 0 else "N/A")
-    
-    # Show sample allocation decisions
-    print(f"\nSample Allocation Decisions:")
-    print("-" * 60)
-    print("Step\tDemand\tAllocation\tReward\tCost\tSatisfaction")
-    for i in range(min(10, len(actions))):
+    # Show sample allocation decisions from test set
+    print(f"\nSample Test Set Allocation Decisions:")
+    print("-" * 70)
+    print("Step\tDemand\tAction\tActual\tReward\tCost\tSatisfaction")
+    print("\t\t\tAlloc")
+    for i in range(min(10, len(test_actions))):
         demand = test_demands[i]
-        allocation = actions[i]
-        reward = individual_rewards[i]
-        cost = allocation * Y_test.iloc[i]['unit_cost']
-        satisfaction = min(allocation, demand) / demand if demand > 0 else 1.0
-        print(f"{i+1}\t{demand:.1f}\t{allocation}\t\t{reward:.2f}\t{cost:.2f}\t{satisfaction:.1%}")
+        action = test_actions[i]
+        actual_allocation = action * allocation_multiplier
+        reward = test_individual_rewards[i]
+        cost = actual_allocation * Y_test.iloc[i]['unit_cost']
+        satisfaction = min(actual_allocation, demand) / demand if demand > 0 else 1.0
+        print(f"{i+1}\t{demand:.1f}\t{action}\t{actual_allocation}\t{reward:.2f}\t{cost:.2f}\t{satisfaction:.1%}")
     
-    # Compare with simple strategies
+    # Compare with simple strategies on both datasets
     print(f"\nStrategy Comparison:")
-    print("-" * 30)
+    print("-" * 50)
     
-    # Always allocate average demand
+    def evaluate_baseline_strategy(X_data, Y_data, allocation_action, strategy_name):
+        rewards = []
+        for i in range(len(X_data)):
+            reward = reward_function_with_multiplier(
+                X_data.iloc[i], allocation_action, Y_data.iloc[i], i
+            )
+            rewards.append(reward)
+        return sum(rewards)
+    
+    # Calculate baselines for both datasets
     avg_demand = features['current_demand'].mean()
-    avg_allocation = int(round(avg_demand))
-    avg_rewards = []
-    for i in range(len(X_test)):
-        reward = resource_allocation_reward(
-            X_test.iloc[i], avg_allocation, Y_test.iloc[i], i
-        )
-        avg_rewards.append(reward)
-    avg_total = sum(avg_rewards)
+    avg_allocation_action = int(round(avg_demand / allocation_multiplier))  # Convert to action space
+    avg_allocation_action = max(0, min(avg_allocation_action, max(action_space)))  # Clamp to valid range
     
-    # Always allocate maximum
-    max_rewards = []
-    for i in range(len(X_test)):
-        reward = resource_allocation_reward(
-            X_test.iloc[i], max(action_space), Y_test.iloc[i], i
-        )
-        max_rewards.append(reward)
-    max_total = sum(max_rewards)
+    # Training baselines
+    train_avg_total = evaluate_baseline_strategy(X_train, Y_train, avg_allocation_action, "Average")
+    train_max_total = evaluate_baseline_strategy(X_train, Y_train, max(action_space), "Maximum")
+    train_min_total = evaluate_baseline_strategy(X_train, Y_train, min(action_space), "Minimum")
     
-    # Always allocate minimum
-    min_rewards = []
-    for i in range(len(X_test)):
-        reward = resource_allocation_reward(
-            X_test.iloc[i], min(action_space), Y_test.iloc[i], i
-        )
-        min_rewards.append(reward)
-    min_total = sum(min_rewards)
+    # Test baselines
+    test_avg_total = evaluate_baseline_strategy(X_test, Y_test, avg_allocation_action, "Average")
+    test_max_total = evaluate_baseline_strategy(X_test, Y_test, max(action_space), "Maximum")
+    test_min_total = evaluate_baseline_strategy(X_test, Y_test, min(action_space), "Minimum")
     
-    print(f"GATree Strategy: {total_reward:.2f}")
-    print(f"Always Average ({avg_allocation}): {avg_total:.2f}")
-    print(f"Always Maximum ({max(action_space)}): {max_total:.2f}")
-    print(f"Always Minimum ({min(action_space)}): {min_total:.2f}")
+    print("Strategy\t\tTrain\t\tTest\t\tGeneralization")
+    print("-" * 65)
+    print(f"GATree\t\t\t{train_total_reward:.2f}\t\t{test_total_reward:.2f}\t\t{test_total_reward/train_total_reward:.3f}")
+    avg_actual = avg_allocation_action * allocation_multiplier
+    max_actual = max(action_space) * allocation_multiplier
+    min_actual = min(action_space) * allocation_multiplier
+    print(f"Always Average ({avg_actual})\t{train_avg_total:.2f}\t\t{test_avg_total:.2f}\t\t{test_avg_total/train_avg_total:.3f}")
+    print(f"Always Maximum ({max_actual})\t{train_max_total:.2f}\t\t{test_max_total:.2f}\t\t{test_max_total/train_max_total:.3f}")
+    print(f"Always Minimum ({min_actual})\t{train_min_total:.2f}\t\t{test_min_total:.2f}\t\t{test_min_total/train_min_total:.3f}")
     
-    best_baseline = max(avg_total, max_total, min_total)
-    improvement = ((total_reward - best_baseline) / abs(best_baseline)) * 100 if best_baseline != 0 else 0
-    print(f"Improvement vs best baseline: {improvement:.1f}%")
+    # Best baseline comparison
+    best_train_baseline = max(train_avg_total, train_max_total, train_min_total)
+    best_test_baseline = max(test_avg_total, test_max_total, test_min_total)
+    
+    train_improvement = ((train_total_reward - best_train_baseline) / abs(best_train_baseline)) * 100 if best_train_baseline != 0 else 0
+    test_improvement = ((test_total_reward - best_test_baseline) / abs(best_test_baseline)) * 100 if best_test_baseline != 0 else 0
+    
+    print(f"\nImprovement vs best baseline:")
+    print(f"  Training: {train_improvement:.1f}%")
+    print(f"  Test: {test_improvement:.1f}%")
     
     # Show training evolution
     print(f"\nTraining Evolution:")
@@ -315,23 +388,29 @@ def main():
         
         fig, ((ax1, ax2), (ax3, ax4)) = plt.subplots(2, 2, figsize=(15, 10))
         
-        # Demand vs Allocation
+        # Demand vs Allocation (Test Set)
         test_indices = range(len(X_test))
+        test_actual_allocations = [action * allocation_multiplier for action in test_actions]
+        
         ax1.plot(test_indices, test_demands, label='Demand', color='blue', alpha=0.7)
-        ax1.plot(test_indices, allocations, label='Allocation', color='red', alpha=0.7)
-        ax1.fill_between(test_indices, test_demands, allocations, alpha=0.3, color='gray')
+        ax1.plot(test_indices, test_actual_allocations, label='Allocation', color='red', alpha=0.7)
+        ax1.fill_between(test_indices, test_demands, test_actual_allocations, alpha=0.3, color='gray')
         ax1.set_xlabel('Timestep')
         ax1.set_ylabel('Resource Units')
-        ax1.set_title('Demand vs Allocation')
+        ax1.set_title('Test Set: Demand vs Allocation')
         ax1.legend()
         ax1.grid(True, alpha=0.3)
         
-        # Cumulative rewards
-        cumulative_rewards = np.cumsum(individual_rewards)
-        ax2.plot(test_indices, cumulative_rewards, color='green')
+        # Cumulative rewards comparison
+        train_cumulative = np.cumsum(train_individual_rewards)
+        test_cumulative = np.cumsum(test_individual_rewards)
+        
+        ax2.plot(range(len(train_cumulative)), train_cumulative, label='Train', color='green', alpha=0.8)
+        ax2.plot(range(len(test_cumulative)), test_cumulative, label='Test', color='orange', alpha=0.8)
         ax2.set_xlabel('Timestep')
         ax2.set_ylabel('Cumulative Reward')
-        ax2.set_title('Cumulative Reward Over Time')
+        ax2.set_title('Cumulative Reward: Train vs Test')
+        ax2.legend()
         ax2.grid(True, alpha=0.3)
         
         # Training evolution
@@ -342,13 +421,22 @@ def main():
         ax3.legend()
         ax3.grid(True, alpha=0.3)
         
-        # Allocation distribution
-        allocations_list = list(action_distribution.keys())
-        counts = list(action_distribution.values())
-        ax4.bar(allocations_list, counts, color='orange', alpha=0.7)
+        # Allocation distribution comparison
+        actions_list = sorted(set(list(train_action_distribution.keys()) + list(test_action_distribution.keys())))
+        train_counts = [train_action_distribution.get(action, 0) for action in actions_list]
+        test_counts = [test_action_distribution.get(action, 0) for action in actions_list]
+        
+        x = np.arange(len(actions_list))
+        width = 0.35
+        
+        ax4.bar(x - width/2, train_counts, width, label='Train', color='lightblue', alpha=0.7)
+        ax4.bar(x + width/2, test_counts, width, label='Test', color='orange', alpha=0.7)
         ax4.set_xlabel('Allocation Level')
         ax4.set_ylabel('Frequency')
-        ax4.set_title('Allocation Distribution')
+        ax4.set_title('Allocation Distribution: Train vs Test')
+        ax4.set_xticks(x)
+        ax4.set_xticklabels(actions_list)
+        ax4.legend()
         ax4.grid(True, alpha=0.3)
         
         plt.tight_layout()
