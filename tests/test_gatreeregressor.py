@@ -190,12 +190,12 @@ class TestGATreeRegressor(unittest.TestCase):
         regressor.fit(self.X_train, self.y_train, sample_weight=weights, max_iter=5)
         
         # Test with wrong length
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RuntimeError):
             wrong_weights = np.ones(10)  # Wrong length
             regressor.fit(self.X_train, self.y_train, sample_weight=wrong_weights, max_iter=5)
         
         # Test with negative weights
-        with self.assertRaises(ValueError):
+        with self.assertRaises(RuntimeError):
             negative_weights = np.ones(len(self.X_train))
             negative_weights[0] = -1.0
             regressor.fit(self.X_train, self.y_train, sample_weight=negative_weights, max_iter=5)

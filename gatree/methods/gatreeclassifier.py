@@ -53,103 +53,179 @@ class GATreeClassifier(ClassifierMixin, GATree):
     @staticmethod
     def default_fitness_function(root, **fitness_function_kwargs):
         """
-        Default fitness function for the genetic algorithm.
+        Default fitness function for the genetic algorithm with sample weight support.
 
         Args:
             root (Node): Root node of the tree.
+            **fitness_function_kwargs: Additional arguments including sample_weight.
 
         Returns:
-            float: The fitness value.
+            float: The fitness value (lower is better).
         """
-        return 1 - accuracy_score(root.y_true, root.y_pred) + (0.002 * root.size())
+        if len(root.y_true) == 0 or len(root.y_pred) == 0:
+            return float('inf')
+        
+        # Get sample weights if provided
+        sample_weight = fitness_function_kwargs.get('sample_weight', None)
+        
+        # Calculate weighted accuracy
+        accuracy = accuracy_score(root.y_true, root.y_pred, sample_weight=sample_weight)
+        
+        # Add complexity penalty
+        complexity_penalty = 0.002 * root.size()
+        
+        return (1 - accuracy) + complexity_penalty
 
-    def fit(self, X, y, population_size=150, max_iter=2000, mutation_probability=0.1, elite_size=1,
-            selection_tournament_size=2, fitness_function_kwargs={}):
+    def fit(self, X, y, sample_weight=None, population_size=150, max_iter=2000, mutation_probability=0.1, elite_size=1,
+            selection_tournament_size=2, fitness_function_kwargs={}, progress_callback=None):
         """
         Fit a tree to a training set. The population size, maximum iterations, mutation probability, elite size, and selection tournament size can be specified.
 
         Args:
             X (pandas.DataFrame): Training data.
             y (pandas.Series): Target values.
+            sample_weight (array-like, optional): Sample weights. If None, all samples have equal weight.
             population_size (int, optional): Size of the population.
             max_iter (int, optional): Maximum number of iterations.
             mutation_probability (float, optional): Probability of mutation.
             elite_size (int, optional): Number of elite trees.
             selection_tournament_size (int, optional): Number of trees in tournament.
-            fitness_function_kwargs (dict, optional): Additional kwargs to be passed to the fitness_funciton.
+            fitness_function_kwargs (dict, optional): Additional kwargs to be passed to the fitness_function.
+            progress_callback (callable, optional): Function called after each generation with (generation, best_fitness, avg_fitness).
 
         Returns:
             Node: The fitted tree.
         """
-        self.X = X
-        self.y = y
-        self.att_indexes = np.arange(X.shape[1])
-        self.att_values = {i: [(min_val + max_val) / 2 for min_val, max_val in zip(sorted(
-            X.iloc[:, i].unique())[:-1], sorted(X.iloc[:, i].unique())[1:])] for i in range(X.shape[1])}
-        self.att_values[-1] = sorted(y.unique())
-        self.class_count = len(self.att_values[-1])
+        try:
+            self.X = X
+            self.y = y
+            self.sample_weight = sample_weight
+            self.att_indexes = np.arange(X.shape[1])
+            
+            # Validate sample weights
+            if sample_weight is not None:
+                sample_weight = np.asarray(sample_weight)
+                if sample_weight.shape[0] != X.shape[0]:
+                    raise ValueError(f"sample_weight must have same length as X: {sample_weight.shape[0]} != {X.shape[0]}")
+                if np.any(sample_weight < 0):
+                    raise ValueError("sample_weight must be non-negative")
+                if np.sum(sample_weight) == 0:
+                    raise ValueError("sample_weight cannot sum to zero")
+            
+            # Validate input parameters
+            if population_size <= 0:
+                raise ValueError("population_size must be positive")
+            if max_iter < 0:
+                raise ValueError("max_iter must be non-negative")
+            if not 0 <= mutation_probability <= 1:
+                raise ValueError("mutation_probability must be between 0 and 1")
+            if elite_size < 0 or elite_size >= population_size:
+                raise ValueError("elite_size must be between 0 and population_size")
+            if selection_tournament_size <= 0:
+                raise ValueError("selection_tournament_size must be positive")
+            
+            self.att_values = {i: [(min_val + max_val) / 2 for min_val, max_val in zip(sorted(
+                X.iloc[:, i].unique())[:-1], sorted(X.iloc[:, i].unique())[1:])] for i in range(X.shape[1])}
+            self.att_values[-1] = sorted(y.unique())
+            self.class_count = len(self.att_values[-1])
 
-        # Generation of initial population
-        node = Node()
-        population = []
-        for _ in range(population_size):
-            population.append(node.make_node(max_depth=self.max_depth, random=self.random,
-                              att_indexes=self.att_indexes, att_values=self.att_values, class_count=self.class_count))
+            # Generation of initial population
+            node = Node()
+            population = []
+            for _ in range(population_size):
+                try:
+                    new_tree = node.make_node(max_depth=self.max_depth, random=self.random,
+                                  att_indexes=self.att_indexes, att_values=self.att_values, class_count=self.class_count)
+                    population.append(new_tree)
+                except Exception as e:
+                    # If tree generation fails, create a simple leaf node
+                    fallback_tree = Node(att_index=-1, att_value=self.random.choice(self.att_values[-1]))
+                    population.append(fallback_tree)
 
-        for i in range(max_iter+1):
-            # Clear previous evaluation
-            for tree in population:
-                tree.clear_evaluation()
+            for i in range(max_iter+1):
+                try:
+                    # Clear previous evaluation
+                    for tree in population:
+                        tree.clear_evaluation()
 
-            # Evaluation of population
-            population = Parallel(n_jobs=self.n_jobs)(delayed(GATreeClassifier._predict_and_evaluate)(
-                tree, X, y, self.fitness_function, True, **fitness_function_kwargs) for tree in population)
+                    # Add sample weights to fitness function kwargs
+                    current_fitness_kwargs = fitness_function_kwargs.copy()
+                    if sample_weight is not None:
+                        current_fitness_kwargs['sample_weight'] = sample_weight
 
-            # Sort population by fitness
-            population.sort(key=lambda x: x.fitness, reverse=False)
+                    # Evaluation of population
+                    population = Parallel(n_jobs=self.n_jobs)(delayed(GATreeClassifier._predict_and_evaluate)(
+                        tree, X, y, self.fitness_function, True, **current_fitness_kwargs) for tree in population)
 
-            # Log best and average fitness
-            self._best_fitness.append(population[0].fitness)
-            self._avg_fitness.append(
-                sum([tree.fitness for tree in population]) / len(population))
+                    # Sort population by fitness
+                    population.sort(key=lambda x: x.fitness, reverse=False)
 
-            if i != max_iter:
-                # Elites
-                elites = population[:elite_size]
+                    # Log best and average fitness
+                    best_fitness = population[0].fitness
+                    avg_fitness = sum([tree.fitness for tree in population]) / len(population)
+                    
+                    self._best_fitness.append(best_fitness)
+                    self._avg_fitness.append(avg_fitness)
+                    
+                    # Call progress callback if provided
+                    if progress_callback is not None:
+                        try:
+                            progress_callback(i, best_fitness, avg_fitness)
+                        except Exception as callback_error:
+                            print(f"Warning: Progress callback failed at generation {i}: {callback_error}")
 
-                # Descendant generation
-                descendant = []
-                for _ in range(0, len(population), 2):
-                    # Tournament selection
-                    tree1, tree2 = Selection.selection(
-                        population=population, selection_tournament_size=selection_tournament_size, random=self.random)
+                    if i != max_iter:
+                        # Elites
+                        elites = population[:elite_size]
 
-                    # Crossover between selected trees
-                    crossover1 = Crossover.crossover(
-                        tree1=tree1, tree2=tree2, random=self.random)
-                    crossover2 = Crossover.crossover(
-                        tree1=tree2, tree2=tree1, random=self.random)
+                        # Descendant generation
+                        descendant = []
+                        for _ in range(0, len(population), 2):
+                            try:
+                                # Tournament selection
+                                tree1, tree2 = Selection.selection(
+                                    population=population, selection_tournament_size=selection_tournament_size, random=self.random)
 
-                    # Mutation of new trees
-                    mutation1 = crossover1
-                    mutation2 = crossover2
-                    if self.random.random() < mutation_probability:
-                        mutation1 = Mutation.mutation(root=crossover1, att_indexes=self.att_indexes,
-                                                      att_values=self.att_values, class_count=self.class_count,
-                                                      random=self.random)
-                    if self.random.random() < mutation_probability:
-                        mutation2 = Mutation.mutation(root=crossover2, att_indexes=self.att_indexes,
-                                                      att_values=self.att_values, class_count=self.class_count,
-                                                      random=self.random)
+                                # Crossover between selected trees
+                                crossover1 = Crossover.crossover(
+                                    tree1=tree1, tree2=tree2, random=self.random)
+                                crossover2 = Crossover.crossover(
+                                    tree1=tree2, tree2=tree1, random=self.random)
 
-                    # Add new trees to descendant population
-                    descendant.extend([mutation1, mutation2])
+                                # Mutation of new trees
+                                mutation1 = crossover1
+                                mutation2 = crossover2
+                                if self.random.random() < mutation_probability:
+                                    mutation1 = Mutation.mutation(root=crossover1, att_indexes=self.att_indexes,
+                                                                  att_values=self.att_values, class_count=self.class_count,
+                                                                  random=self.random)
+                                if self.random.random() < mutation_probability:
+                                    mutation2 = Mutation.mutation(root=crossover2, att_indexes=self.att_indexes,
+                                                                  att_values=self.att_values, class_count=self.class_count,
+                                                                  random=self.random)
 
-                # Elites + descendants
-                descendant.sort(key=lambda x: x.fitness, reverse=False)
-                descendant = elites + descendant[:population_size - elite_size]
+                                # Add new trees to descendant population
+                                descendant.extend([mutation1, mutation2])
+                            except Exception as generation_error:
+                                # If generation fails, add copies of elite trees
+                                print(f"Warning: Generation failed at iteration {i}, using elite copies: {generation_error}")
+                                if len(elites) > 0:
+                                    descendant.extend([Node.copy(elites[0]), Node.copy(elites[0])])
 
-                # Replace old population with new population
-                population = descendant
+                        # Elites + descendants
+                        descendant.sort(key=lambda x: x.fitness, reverse=False)
+                        descendant = elites + descendant[:population_size - elite_size]
 
-        self._tree = population[0]
+                        # Replace old population with new population
+                        population = descendant
+                        
+                except Exception as iteration_error:
+                    print(f"Warning: Error in generation {i}: {iteration_error}")
+                    # Continue with current population
+                    continue
+
+            self._tree = population[0]
+            return self._tree
+            
+        except Exception as e:
+            raise RuntimeError(f"Failed to fit GATreeClassifier: {str(e)}") from e
