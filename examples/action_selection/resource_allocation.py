@@ -88,7 +88,7 @@ def generate_resource_demand_data(n_timesteps=250, random_state=42):
     return features, cost_data
 
 
-def resource_allocation_reward(state, action, cost_data, timestep, allocation_multiplier=5):
+def resource_allocation_reward(state, action, cost_data, timestep, previous_action, allocation_multiplier=5):
     """
     Calculate reward for a resource allocation action.
     
@@ -97,6 +97,7 @@ def resource_allocation_reward(state, action, cost_data, timestep, allocation_mu
         action: Resource allocation level (0-5, multiplied by allocation_multiplier)
         cost_data: Cost and demand information
         timestep: Current timestep
+        previous_action: Previous action taken (None for first timestep)
         allocation_multiplier: Multiplier for actual resource units
     
     Returns:
@@ -112,6 +113,13 @@ def resource_allocation_reward(state, action, cost_data, timestep, allocation_mu
     # Base cost of allocation
     allocation_cost = allocation * unit_cost
     
+    # Optional: Add penalty/bonus for action changes (using previous_action)
+    change_penalty = 0.0
+    if previous_action is not None:
+        # Small penalty for changing allocation levels (encourages stability)
+        action_change = abs(action - previous_action)
+        change_penalty = action_change * 0.1  # Small penalty for instability
+    
     # Satisfaction reward (how well we meet demand)
     if allocation >= demand:
         # Full satisfaction
@@ -126,8 +134,8 @@ def resource_allocation_reward(state, action, cost_data, timestep, allocation_mu
         shortage_penalty = (demand - allocation) * underallocation_penalty
         waste_penalty = shortage_penalty
     
-    # Total reward
-    reward = satisfaction_reward - allocation_cost - waste_penalty
+    # Total reward (now includes change penalty)
+    reward = satisfaction_reward - allocation_cost - waste_penalty - change_penalty
     
     return reward
 
@@ -183,8 +191,8 @@ def main():
     print("Parameters: population_size=40, max_iter=60, max_depth=7")
     
     # Create a wrapper function that includes the multiplier
-    def reward_function_with_multiplier(state, action, cost_data, timestep):
-        return resource_allocation_reward(state, action, cost_data, timestep, allocation_multiplier)
+    def reward_function_with_multiplier(state, action, cost_data, timestep, previous_action):
+        return resource_allocation_reward(state, action, cost_data, timestep, previous_action, allocation_multiplier)
     
     # Optional: Define a global reward function for smoother allocation
     def allocation_smoothness_reward(rewards, actions, X, Y):
@@ -360,11 +368,13 @@ def main():
     
     def evaluate_baseline_strategy(X_data, Y_data, allocation_action, strategy_name):
         rewards = []
+        previous_action = None  # Initialize for baseline strategies
         for i in range(len(X_data)):
             reward = reward_function_with_multiplier(
-                X_data.iloc[i], allocation_action, Y_data.iloc[i], i
+                X_data.iloc[i], allocation_action, Y_data.iloc[i], i, previous_action
             )
             rewards.append(reward)
+            previous_action = allocation_action  # Update for next iteration
         return sum(rewards)
     
     # Calculate baselines for both datasets

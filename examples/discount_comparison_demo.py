@@ -43,7 +43,7 @@ def generate_test_data(n_timesteps=100, random_state=42):
     return X, Y
 
 
-def time_sensitive_reward(state, action, y_data, timestep):
+def time_sensitive_reward(state, action, y_data, timestep, previous_action):
     """
     Reward function that has different patterns over time.
     
@@ -56,8 +56,22 @@ def time_sensitive_reward(state, action, y_data, timestep):
     late_bonus = y_data['late_bonus']
     cost = y_data['cost']
     
+    # Base reward calculation
     if action == 0:
         # Early strategy: high reward early, low reward late
+        reward = base_reward + early_bonus - cost
+    elif action == 1:
+        # Late strategy: low reward early, high reward late
+        reward = base_reward + late_bonus - cost
+    else:  # action == 2
+        # Consistent strategy: moderate reward throughout
+        reward = base_reward * 0.7 - cost * 0.8
+    
+    # Optional: Add small penalty for frequent strategy changes
+    if previous_action is not None and previous_action != action:
+        reward -= 0.5  # Penalty for changing strategies
+    
+    return reward
         return base_reward + early_bonus - cost
     elif action == 1:
         # Late strategy: low reward early, high reward late

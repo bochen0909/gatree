@@ -27,9 +27,15 @@ def generate_test_data(n_timesteps=30, random_state=42):
     return X, Y
 
 
-def simple_reward(state, action, y_data, timestep):
+def simple_reward(state, action, y_data, timestep, previous_action):
     """Basic per-timestep reward function."""
-    return float(y_data['value']) * action - float(state['cost']) * action
+    base_reward = float(y_data['value']) * action - float(state['cost']) * action
+    
+    # Optional: Add small bonus for action consistency
+    if previous_action is not None and previous_action == action:
+        base_reward += 0.1  # Small bonus for keeping same action
+    
+    return base_reward
 
 
 def smoothness_global_reward(rewards, actions, X, Y):

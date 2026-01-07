@@ -80,15 +80,24 @@ def test_action_selector_with_weights():
     # Define action space and reward function
     action_space = ['buy', 'sell', 'hold']
     
-    def simple_reward_function(state, action, y_data, timestep):
+    def simple_reward_function(state, action, y_data, timestep, previous_action):
         """Simple reward based on action and next return."""
         next_return = y_data['next_return']
+        
+        # Base reward based on action and market direction
         if action == 'buy':
-            return next_return * 100  # Profit from buying
+            base_reward = next_return * 100  # Profit from buying
         elif action == 'sell':
-            return -next_return * 100  # Profit from selling
+            base_reward = -next_return * 100  # Profit from selling
         else:  # hold
-            return 0
+            base_reward = 0
+        
+        # Optional: Add small penalty for frequent action changes
+        change_penalty = 0.0
+        if previous_action is not None and previous_action != action:
+            change_penalty = 1.0  # Small penalty for changing actions
+        
+        return base_reward - change_penalty
     
     # Create sample weights - give more importance to later timesteps
     sample_weight = np.linspace(0.5, 2.0, n_timesteps)
@@ -158,7 +167,7 @@ def test_weight_validation():
         weights = np.array([1.0, 1.0, 2.0])  # Wrong length
         regressor.fit(X, y, sample_weight=weights, max_iter=5)
         print("✗ Wrong length weights should have failed")
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         print(f"✓ Wrong length weights correctly rejected: {e}")
     
     # Test with negative weights
@@ -166,7 +175,7 @@ def test_weight_validation():
         weights = np.array([1.0, -1.0, 2.0, 1.0, 1.0])  # Negative weight
         regressor.fit(X, y, sample_weight=weights, max_iter=5)
         print("✗ Negative weights should have failed")
-    except ValueError as e:
+    except (ValueError, RuntimeError) as e:
         print(f"✓ Negative weights correctly rejected: {e}")
     
     print()

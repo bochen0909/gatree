@@ -56,7 +56,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
 
         Args:
             action_space (list): List of possible actions
-            reward_function (callable): Function(state, action, y_data, timestep) -> reward
+            reward_function (callable): Function(state, action, y_data, timestep, previous_action) -> reward
             max_depth (int, optional): Maximum depth of the tree
             discount_factor (float, optional): Future reward discount factor
             discount_direction (str, optional): 'forward' (standard) or 'backward' (reverse discount)
@@ -125,6 +125,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 raise ValueError(f"sample_weight length {len(sample_weight)} != n_timesteps {n_timesteps}")
         
         # Simulate action sequence and calculate rewards
+        previous_action = None  # Initialize previous action as None for first timestep
         for t in range(n_timesteps):
             try:
                 # Get action index from tree prediction
@@ -138,8 +139,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 action = action_space[action_idx]
                 actions.append(action)
                 
-                # Calculate reward for this timestep
-                reward = reward_function(X.iloc[t], action, Y.iloc[t], t)
+                # Calculate reward for this timestep (now includes previous_action)
+                reward = reward_function(X.iloc[t], action, Y.iloc[t], t, previous_action)
                 individual_rewards.append(reward)
                 
                 # Apply sample weight if provided
@@ -160,6 +161,9 @@ class GATreeActionSelector(GATree, BaseEstimator):
                     discounted_reward = reward
                 
                 total_reward += discounted_reward
+                
+                # Update previous_action for next iteration
+                previous_action = action
                 
             except Exception as e:
                 # Handle any errors in reward calculation
@@ -486,11 +490,13 @@ class GATreeActionSelector(GATree, BaseEstimator):
         total_reward = 0.0
         individual_rewards = []
         
+        previous_action = None  # Initialize previous action as None for first timestep
         for t, action in enumerate(actions):
-            reward = reward_function(X.iloc[t], action, Y.iloc[t], t)
+            reward = reward_function(X.iloc[t], action, Y.iloc[t], t, previous_action)
             discounted_reward = reward * (self.discount_factor ** t)
             individual_rewards.append(reward)
             total_reward += discounted_reward
+            previous_action = action  # Update previous action for next iteration
         
         return total_reward, individual_rewards, actions
 

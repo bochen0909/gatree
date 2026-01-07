@@ -36,18 +36,25 @@ class TestGATreeActionSelector(unittest.TestCase):
         # Define simple action space and reward function
         self.action_space = ['action_0', 'action_1', 'action_2']
         
-        def simple_reward_function(state, action, y_data, timestep):
+        def simple_reward_function(state, action, y_data, timestep, previous_action):
             """Simple reward function for testing."""
             try:
                 base_reward = float(y_data['value'])
                 cost = float(y_data['cost'])
                 
+                # Base reward calculation
                 if action == 'action_0':
-                    return base_reward - cost
+                    reward = base_reward - cost
                 elif action == 'action_1':
-                    return base_reward * 0.5 - cost * 0.5
+                    reward = base_reward * 0.5 - cost * 0.5
                 else:  # action_2
-                    return -cost * 0.1
+                    reward = -cost * 0.1
+                
+                # Optional: Add small penalty for action changes
+                if previous_action is not None and previous_action != action:
+                    reward -= 0.1  # Small penalty for changing actions
+                
+                return reward
             except Exception as e:
                 print(f"Test error: {e}")
                 return -1.0  # Return a small negative reward on error
@@ -323,9 +330,15 @@ class TestGATreeActionSelector(unittest.TestCase):
     
     def test_custom_reward_function(self):
         """Test with custom reward function."""
-        def custom_reward(state, action, y_data, timestep):
+        def custom_reward(state, action, y_data, timestep, previous_action):
             """Custom reward function that depends on timestep."""
-            return timestep * 0.1 if action == 'action_0' else -timestep * 0.1
+            base_reward = timestep * 0.1 if action == 'action_0' else -timestep * 0.1
+            
+            # Add small bonus for action consistency
+            if previous_action is not None and previous_action == action:
+                base_reward += 0.05  # Small bonus for keeping same action
+            
+            return base_reward
         
         selector = GATreeActionSelector(
             action_space=self.action_space,
@@ -365,7 +378,7 @@ class TestGATreeActionSelector(unittest.TestCase):
             selector.predict_action_indices(self.X)
         
         # Test with problematic reward function
-        def error_reward(state, action, y_data, timestep):
+        def error_reward(state, action, y_data, timestep, previous_action):
             if timestep == 2:
                 raise ValueError("Test error")
             return 1.0
@@ -422,7 +435,7 @@ class TestGATreeActionSelector(unittest.TestCase):
         """Test with minimal action space."""
         small_action_space = ['single_action']
         
-        def simple_reward(state, action, y_data, timestep):
+        def simple_reward(state, action, y_data, timestep, previous_action):
             return 1.0
         
         selector = GATreeActionSelector(
@@ -447,9 +460,15 @@ class TestGATreeActionSelector(unittest.TestCase):
         """Test with larger action space."""
         large_action_space = [f'action_{i}' for i in range(10)]
         
-        def varied_reward(state, action, y_data, timestep):
+        def varied_reward(state, action, y_data, timestep, previous_action):
             action_idx = large_action_space.index(action)
-            return action_idx * 0.1 - 0.5  # Reward increases with action index
+            base_reward = action_idx * 0.1 - 0.5  # Reward increases with action index
+            
+            # Small bonus for action consistency
+            if previous_action is not None and previous_action == action:
+                base_reward += 0.02
+            
+            return base_reward
         
         selector = GATreeActionSelector(
             action_space=large_action_space,

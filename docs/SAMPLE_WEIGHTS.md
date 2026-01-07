@@ -56,14 +56,23 @@ Y = pd.DataFrame({
 # Define action space and reward function
 action_space = ['buy', 'sell', 'hold']
 
-def reward_function(state, action, y_data, timestep):
+def reward_function(state, action, y_data, timestep, previous_action):
     next_return = y_data['next_return']
+    
+    # Base reward based on action and market direction
     if action == 'buy':
-        return next_return * 100
+        base_reward = next_return * 100
     elif action == 'sell':
-        return -next_return * 100
+        base_reward = -next_return * 100
     else:  # hold
-        return 0
+        base_reward = 0
+    
+    # Optional: Add penalty for frequent action changes
+    change_penalty = 0.0
+    if previous_action is not None and previous_action != action:
+        change_penalty = 1.0  # Small penalty for changing actions
+    
+    return base_reward - change_penalty
 
 # Create sample weights - give more importance to later timesteps
 sample_weight = np.linspace(0.5, 2.0, n_timesteps)

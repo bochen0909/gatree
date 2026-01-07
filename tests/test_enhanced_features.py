@@ -113,7 +113,7 @@ class TestEnhancedFeatures(unittest.TestCase):
     def test_action_selector_progress_callback(self):
         """Test GATreeActionSelector with progress callback"""
         # Simple reward function
-        def simple_reward(state, action, y_data, timestep):
+        def simple_reward(state, action, y_data, timestep, previous_action):
             return 1.0 if action == 0 else 0.0
         
         action_selector = GATreeActionSelector(
@@ -186,7 +186,7 @@ class TestEnhancedFeatures(unittest.TestCase):
     
     def test_action_selector_error_handling(self):
         """Test GATreeActionSelector error handling"""
-        def simple_reward(state, action, y_data, timestep):
+        def simple_reward(state, action, y_data, timestep, previous_action):
             return 1.0
         
         action_selector = GATreeActionSelector(
