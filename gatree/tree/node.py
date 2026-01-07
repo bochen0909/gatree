@@ -225,20 +225,27 @@ class Node:
         if max_depth == None:
             max_depth = depth
 
+        def _rand_index(rng, high):
+            if high <= 0:
+                return 0
+            if hasattr(rng, "randrange"):
+                return rng.randrange(high)
+            return int(rng.randint(0, high))
+
         try:
             # if it's the root, first level or 50/50 chance of building new children.
             # Must be below maximal depth.
             if (depth <= 1 or (random.choice([True, False])) and depth < max_depth):
                 if len(att_indexes) == 0:
                     # No attributes available, create a leaf
-                    r = random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0
+                    r = _rand_index(random, class_count)
                     node = Node(att_index=-1, att_value=r)
                 else:
-                    subset_index = random.randint(0, len(att_indexes) - 1)
+                    subset_index = _rand_index(random, len(att_indexes))
                     att_index = att_indexes[subset_index]
                     
                     if att_index in att_values and len(att_values[att_index]) > 0:
-                        value_index = random.randint(0, len(att_values[att_index]) - 1)
+                        value_index = _rand_index(random, len(att_values[att_index]))
                         att_value = att_values[att_index][value_index]
                         node = Node(att_index=att_index, att_value=att_value)
                         
@@ -250,25 +257,25 @@ class Node:
                         
                         # Ensure children are not None
                         if left_child is None:
-                            left_child = Node(att_index=-1, att_value=random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0)
+                            left_child = Node(att_index=-1, att_value=_rand_index(random, class_count))
                         if right_child is None:
-                            right_child = Node(att_index=-1, att_value=random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0)
+                            right_child = Node(att_index=-1, att_value=_rand_index(random, class_count))
                             
                         node.set_left(left_child)
                         node.set_right(right_child)
                     else:
                         # No valid attribute values, create a leaf
-                        r = random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0
+                        r = _rand_index(random, class_count)
                         node = Node(att_index=-1, att_value=r)
             else:  # result (leaf)
-                r = random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0
+                r = _rand_index(random, class_count)
                 node = Node(att_index=-1, att_value=r)
         except Exception as e:
             print(f"{att_index};{att_value};{value_index}")
             print("Error:", e)
             # Create a simple leaf node as fallback
             try:
-                r = random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0
+                r = _rand_index(random, class_count)
                 node = Node(att_index=-1, att_value=r)
             except:
                 node = Node(att_index=-1, att_value=0)
