@@ -169,7 +169,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 # Handle any errors in reward calculation
                 print(f"Error calculating reward at timestep {t}: {e}")
                 # Use a smaller penalty to avoid dominating the fitness
-                total_reward -= 10  # Smaller penalty for errors
+                total_reward -= 1000  # Smaller penalty for errors
         
         # Calculate global reward if function provided
         global_reward = 0.0
