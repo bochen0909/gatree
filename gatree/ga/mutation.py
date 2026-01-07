@@ -89,11 +89,17 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
+        if class_count <= 1:
+            return
+            
         result_old = node.att_value
         result_new = result_old
 
-        while result_old == result_new:  # classes must be different
-            result_new = random.randint(0, class_count)
+        attempts = 0
+        max_attempts = 100
+        while result_old == result_new and attempts < max_attempts:  # classes must be different
+            result_new = random.randint(0, max(0, class_count - 1))
+            attempts += 1
 
         node.att_value = result_new
 
@@ -163,18 +169,30 @@ class Mutation:
             att_values (list): List of attribute values.
             random (Random): Random number generator.
         """
+        if len(att_indexes) == 0:
+            return
+            
         att_index_old = node.att_index
         att_index_new = att_index_old
 
         att_value_old = node.att_value
         att_value_new = att_value_old
 
-        while att_index_old == att_index_new:
-            att_index_new = random.randint(0, len(att_indexes))
-            att_value_new = random.randint(0, len(att_values[att_index_new]))
+        attempts = 0
+        max_attempts = 100
+        while att_index_old == att_index_new and attempts < max_attempts:
+            subset_index = random.randint(0, len(att_indexes) - 1)
+            att_index_new = att_indexes[subset_index]
+            
+            if att_index_new in att_values and len(att_values[att_index_new]) > 0:
+                value_index = random.randint(0, len(att_values[att_index_new]) - 1)
+                att_value_new = att_values[att_index_new][value_index]
+            else:
+                att_value_new = 0
+            attempts += 1
 
         node.att_index = att_index_new
-        node.att_value = att_values[att_index_new][att_value_new]
+        node.att_value = att_value_new
 
     @staticmethod
     def change_attribute_value(node, att_values, random):
@@ -188,13 +206,20 @@ class Mutation:
         """
         att_index = node.att_index
 
+        if att_index not in att_values or len(att_values[att_index]) == 0:
+            return
+
         att_value_old = node.att_value
         att_value_new = att_value_old
 
-        while att_value_old == att_value_new:
-            att_value_new = random.randint(0, len(att_values[att_index]))
+        attempts = 0
+        max_attempts = 100
+        while att_value_old == att_value_new and attempts < max_attempts:
+            value_index = random.randint(0, len(att_values[att_index]) - 1)
+            att_value_new = att_values[att_index][value_index]
+            attempts += 1
 
-        node.att_value = att_values[att_index][att_value_new]
+        node.att_value = att_value_new
 
     @staticmethod
     def exchange_tree_for_class(node, class_count, random):
@@ -206,12 +231,15 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
+        if node is None or node.parent is None:
+            return
+            
         parent = node.parent
         left = False
         if parent.left == node:
             left = True
 
-        leaf = Node(att_index=-1, att_value=random.randint(0, class_count))
+        leaf = Node(att_index=-1, att_value=random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0)
         leaf.parent = parent
 
         if left:
@@ -231,6 +259,9 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
+        if node is None or node.parent is None:
+            return
+            
         parent = node.parent
         left = False
         if parent.left == node:
@@ -239,6 +270,11 @@ class Mutation:
         n = Node()
         subtree = n.make_node(max_depth=node.depth(), random=random,
                               att_indexes=att_indexes, att_values=att_values, class_count=class_count)
+        
+        # Ensure subtree is not None
+        if subtree is None:
+            subtree = Node(att_index=-1, att_value=random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0)
+            
         subtree.parent = parent
 
         if left:

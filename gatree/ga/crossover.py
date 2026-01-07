@@ -24,33 +24,71 @@ class Crossover:
         Returns:
             Node: The new tree resulting from crossover.
         """
+        if tree1 is None or tree2 is None:
+            return tree1 if tree1 is not None else tree2
+            
         n1 = Node.copy(tree1)
         n2 = Node.copy(tree2)
-        size1 = n1.max_depth()
-        size2 = n2.max_depth()
+        
+        if n1 is None or n2 is None:
+            return n1 if n1 is not None else n2
+            
+        size1 = max(1, n1.max_depth())
+        size2 = max(1, n2.max_depth())
 
-        while True:
-            if (n1.left == None or random.randint(0, size1) == 0) and n1.parent != None:
+        # Find crossover point in first tree
+        attempts = 0
+        max_attempts = 100
+        while attempts < max_attempts:
+            if n1 is None:
                 break
-
-            if random.choice([True, False]):
+            if (n1.left is None or random.randint(0, size1) == 0) and n1.parent is not None:
+                break
+            
+            # Move to a child node
+            if n1.left is not None and n1.right is not None:
+                if random.choice([True, False]):
+                    n1 = n1.left
+                else:
+                    n1 = n1.right
+            elif n1.left is not None:
                 n1 = n1.left
-            else:
+            elif n1.right is not None:
                 n1 = n1.right
-
-        while True:
-            if (n2.left == None or random.randint(0, size2) == 0) and n2.parent != None:
-                break
-
-            if random.choice([True, False]):
-                n2 = n2.left
             else:
+                break
+            attempts += 1
+
+        # Find crossover point in second tree
+        attempts = 0
+        while attempts < max_attempts:
+            if n2 is None:
+                break
+            if (n2.left is None or random.randint(0, size2) == 0) and n2.parent is not None:
+                break
+                
+            # Move to a child node
+            if n2.left is not None and n2.right is not None:
+                if random.choice([True, False]):
+                    n2 = n2.left
+                else:
+                    n2 = n2.right
+            elif n2.left is not None:
+                n2 = n2.left
+            elif n2.right is not None:
                 n2 = n2.right
+            else:
+                break
+            attempts += 1
 
-        p = n1.parent
-        if p.left == n1:
-            p.set_left(n2)
-        else:
-            p.set_right(n2)
-
-        return p.get_root()
+        # Perform crossover if valid nodes found
+        if n1 is not None and n2 is not None and n1.parent is not None:
+            p = n1.parent
+            if p.left == n1:
+                p.set_left(n2)
+            else:
+                p.set_right(n2)
+            return p.get_root()
+        
+        # Return original tree if crossover failed
+        return Node.copy(tree1)
