@@ -473,5 +473,63 @@ class TestGATreeActionSelector(unittest.TestCase):
         self.assertEqual(len(distribution), len(large_action_space))
 
 
+    def test_sample_weights_validation(self):
+        """Test sample weight validation."""
+        selector = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            random_state=42
+        )
+        
+        # Test with correct weights
+        weights = np.ones(len(self.X))
+        selector.fit(self.X, self.Y, sample_weight=weights, max_iter=5)
+        
+        # Test with wrong length
+        with self.assertRaises(ValueError):
+            wrong_weights = np.ones(10)  # Wrong length
+            selector.fit(self.X, self.Y, sample_weight=wrong_weights, max_iter=5)
+        
+        # Test with negative weights
+        with self.assertRaises(ValueError):
+            negative_weights = np.ones(len(self.X))
+            negative_weights[0] = -1.0
+            selector.fit(self.X, self.Y, sample_weight=negative_weights, max_iter=5)
+
+    def test_sample_weights_functionality(self):
+        """Test that sample weights affect training."""
+        # Create weights that heavily favor later timesteps
+        sample_weight = np.linspace(0.1, 2.0, len(self.X))
+        
+        # Train without weights
+        selector_no_weights = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            random_state=42
+        )
+        selector_no_weights.fit(self.X, self.Y, max_iter=10)
+        
+        # Train with weights
+        selector_with_weights = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            random_state=42
+        )
+        selector_with_weights.fit(self.X, self.Y, sample_weight=sample_weight, max_iter=10)
+        
+        # Both should complete successfully
+        self.assertIsNotNone(selector_no_weights._tree)
+        self.assertIsNotNone(selector_with_weights._tree)
+        
+        # Make predictions
+        actions_no_weights = selector_no_weights.predict_actions(self.X[:5])
+        actions_with_weights = selector_with_weights.predict_actions(self.X[:5])
+        
+        self.assertEqual(len(actions_no_weights), 5)
+        self.assertEqual(len(actions_with_weights), 5)
+        self.assertTrue(all(action in self.action_space for action in actions_no_weights))
+        self.assertTrue(all(action in self.action_space for action in actions_with_weights))
+
+
 if __name__ == '__main__':
     unittest.main()

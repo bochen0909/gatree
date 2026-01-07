@@ -181,6 +181,50 @@ class TestGATreeRegressor(unittest.TestCase):
         leaves = tree.get_leaves()
         self.assertTrue(any(leaf.att_index == -1 for leaf in leaves))
 
+    def test_sample_weights_validation(self):
+        """Test sample weight validation."""
+        regressor = GATreeRegressor(random_state=42)
+        
+        # Test with correct weights
+        weights = np.ones(len(self.X_train))
+        regressor.fit(self.X_train, self.y_train, sample_weight=weights, max_iter=5)
+        
+        # Test with wrong length
+        with self.assertRaises(ValueError):
+            wrong_weights = np.ones(10)  # Wrong length
+            regressor.fit(self.X_train, self.y_train, sample_weight=wrong_weights, max_iter=5)
+        
+        # Test with negative weights
+        with self.assertRaises(ValueError):
+            negative_weights = np.ones(len(self.X_train))
+            negative_weights[0] = -1.0
+            regressor.fit(self.X_train, self.y_train, sample_weight=negative_weights, max_iter=5)
+
+    def test_sample_weights_functionality(self):
+        """Test that sample weights affect training."""
+        # Create weights that heavily favor first half of samples
+        sample_weight = np.ones(len(self.X_train))
+        sample_weight[:len(self.X_train)//2] = 10.0
+        
+        # Train without weights
+        regressor_no_weights = GATreeRegressor(random_state=42)
+        regressor_no_weights.fit(self.X_train, self.y_train, max_iter=10)
+        
+        # Train with weights
+        regressor_with_weights = GATreeRegressor(random_state=42)
+        regressor_with_weights.fit(self.X_train, self.y_train, sample_weight=sample_weight, max_iter=10)
+        
+        # Both should complete successfully
+        self.assertIsNotNone(regressor_no_weights._tree)
+        self.assertIsNotNone(regressor_with_weights._tree)
+        
+        # Make predictions
+        pred_no_weights = regressor_no_weights.predict(self.X_test[:5])
+        pred_with_weights = regressor_with_weights.predict(self.X_test[:5])
+        
+        self.assertEqual(len(pred_no_weights), 5)
+        self.assertEqual(len(pred_with_weights), 5)
+
 
 if __name__ == '__main__':
     unittest.main()

@@ -68,7 +68,7 @@ class GATree(BaseEstimator):
         pass
 
     @staticmethod
-    def _predict_and_evaluate(tree, X, y, fitness_function, is_training=False, **fitness_function_kwargs):
+    def _predict_and_evaluate(tree, X, y, fitness_function, is_training=False, sample_weight=None, **fitness_function_kwargs):
         """
         Evaluate a tree on a training set (in parallel).
 
@@ -78,6 +78,7 @@ class GATree(BaseEstimator):
             y (pandas.Series): Target values.
             fitness_function (function): Fitness function for the genetic algorithm.
             is_training (bool): If the instances are used for training or predicting.
+            sample_weight (array-like, optional): Sample weights.
 
         Returns:
             Node: The evaluated tree.
@@ -85,6 +86,11 @@ class GATree(BaseEstimator):
         for j in range(X.shape[0]):
             # Predict class for current instance
             tree.predict_one(X.iloc[j], y.iloc[j], is_training)
+        
+        # Pass sample weights to fitness function
+        if sample_weight is not None:
+            fitness_function_kwargs['sample_weight'] = sample_weight
+        
         tree.fitness = fitness_function(tree, **fitness_function_kwargs)
         return tree
 

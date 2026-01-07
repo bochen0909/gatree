@@ -58,6 +58,7 @@ class GATreeRegressor(RegressorMixin, GATree):
 
         Args:
             root (Node): Root node of the tree.
+            **fitness_function_kwargs: Additional arguments including sample_weight.
 
         Returns:
             float: The fitness value (lower is better).
@@ -65,8 +66,11 @@ class GATreeRegressor(RegressorMixin, GATree):
         if len(root.y_true) == 0 or len(root.y_pred) == 0:
             return float('inf')
         
-        # Calculate normalized MSE
-        mse = mean_squared_error(root.y_true, root.y_pred)
+        # Get sample weights if provided
+        sample_weight = fitness_function_kwargs.get('sample_weight', None)
+        
+        # Calculate weighted MSE
+        mse = mean_squared_error(root.y_true, root.y_pred, sample_weight=sample_weight)
         y_range = fitness_function_kwargs.get('y_range', 1.0)
         normalized_mse = mse / (y_range ** 2) if y_range > 0 else mse
         
@@ -75,7 +79,7 @@ class GATreeRegressor(RegressorMixin, GATree):
         
         return normalized_mse + complexity_penalty
 
-    def fit(self, X, y, population_size=150, max_iter=2000, mutation_probability=0.1, elite_size=1,
+    def fit(self, X, y, sample_weight=None, population_size=150, max_iter=2000, mutation_probability=0.1, elite_size=1,
             selection_tournament_size=2, fitness_function_kwargs={}):
         """
         Fit a tree to a training set. The population size, maximum iterations, mutation probability, elite size, and selection tournament size can be specified.
@@ -83,6 +87,7 @@ class GATreeRegressor(RegressorMixin, GATree):
         Args:
             X (pandas.DataFrame): Training data.
             y (pandas.Series): Target values.
+            sample_weight (array-like, optional): Sample weights. If None, all samples have equal weight.
             population_size (int, optional): Size of the population.
             max_iter (int, optional): Maximum number of iterations.
             mutation_probability (float, optional): Probability of mutation.
@@ -95,7 +100,16 @@ class GATreeRegressor(RegressorMixin, GATree):
         """
         self.X = X
         self.y = y
+        self.sample_weight = sample_weight
         self.att_indexes = np.arange(X.shape[1])
+        
+        # Validate sample weights
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)
+            if sample_weight.shape[0] != X.shape[0]:
+                raise ValueError(f"sample_weight must have same length as X: {sample_weight.shape[0]} != {X.shape[0]}")
+            if np.any(sample_weight < 0):
+                raise ValueError("sample_weight must be non-negative")
         
         # Create split thresholds for features (same as classification)
         self.att_values = {i: [(min_val + max_val) / 2 for min_val, max_val in zip(sorted(
@@ -135,7 +149,7 @@ class GATreeRegressor(RegressorMixin, GATree):
 
             # Evaluation of population
             population = Parallel(n_jobs=self.n_jobs)(delayed(GATreeRegressor._predict_and_evaluate)(
-                tree, X, y, self.fitness_function, True, **fitness_function_kwargs) for tree in population)
+                tree, X, y, self.fitness_function, True, sample_weight, **fitness_function_kwargs) for tree in population)
 
             # Sort population by fitness (lower is better for regression)
             population.sort(key=lambda x: x.fitness, reverse=False)

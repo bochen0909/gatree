@@ -87,7 +87,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
     @staticmethod
     def default_fitness_function(root, X, Y, action_space, reward_function, discount_factor=1.0, 
                                 discount_direction='forward', global_reward_function=None, 
-                                global_reward_weight=1.0, **kwargs):
+                                global_reward_weight=1.0, sample_weight=None, **kwargs):
         """
         Default fitness function for action selection based on cumulative rewards.
         
@@ -104,6 +104,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             discount_direction (str): 'forward' (standard) or 'backward' (reverse discount)
             global_reward_function (callable, optional): Global reward function
             global_reward_weight (float): Weight for global reward component
+            sample_weight (array-like, optional): Sample weights for timesteps
 
         Returns:
             float: Fitness value (lower is better, so we negate rewards)
@@ -116,6 +117,12 @@ class GATreeActionSelector(GATree, BaseEstimator):
         n_timesteps = len(X)
         individual_rewards = []
         actions = []
+        
+        # Validate sample weights if provided
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)
+            if len(sample_weight) != n_timesteps:
+                raise ValueError(f"sample_weight length {len(sample_weight)} != n_timesteps {n_timesteps}")
         
         # Simulate action sequence and calculate rewards
         for t in range(n_timesteps):
@@ -134,6 +141,10 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 # Calculate reward for this timestep
                 reward = reward_function(X.iloc[t], action, Y.iloc[t], t)
                 individual_rewards.append(reward)
+                
+                # Apply sample weight if provided
+                if sample_weight is not None:
+                    reward = reward * sample_weight[t]
                 
                 # Apply discount factor based on direction
                 if discount_direction == 'forward':
@@ -161,6 +172,10 @@ class GATreeActionSelector(GATree, BaseEstimator):
         if global_reward_function is not None:
             try:
                 global_reward = global_reward_function(individual_rewards, actions, X, Y) * global_reward_weight
+                # Apply sample weights to global reward if provided
+                if sample_weight is not None:
+                    # Use mean weight for global reward
+                    global_reward = global_reward * np.mean(sample_weight)
             except Exception as e:
                 print(f"Error in global reward function: {e}")
                 global_reward = -100  # Penalty for errors in global function
@@ -174,7 +189,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
         
         return fitness
 
-    def fit(self, X, Y, population_size=100, max_iter=1000, mutation_probability=0.15, 
+    def fit(self, X, Y, sample_weight=None, population_size=100, max_iter=1000, mutation_probability=0.15, 
             elite_size=2, selection_tournament_size=3, fitness_function_kwargs={}):
         """
         Fit the action selector to time series data.
@@ -182,6 +197,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
         Args:
             X (pandas.DataFrame): Time series features (rows = timesteps, cols = features)
             Y (pandas.DataFrame): Additional data for reward calculation
+            sample_weight (array-like, optional): Sample weights for timesteps. If None, all timesteps have equal weight.
             population_size (int, optional): Size of the population
             max_iter (int, optional): Maximum number of iterations
             mutation_probability (float, optional): Probability of mutation
@@ -194,7 +210,16 @@ class GATreeActionSelector(GATree, BaseEstimator):
         """
         self.X = X
         self.Y = Y
+        self.sample_weight = sample_weight
         self.att_indexes = np.arange(X.shape[1])
+        
+        # Validate sample weights
+        if sample_weight is not None:
+            sample_weight = np.asarray(sample_weight)
+            if sample_weight.shape[0] != X.shape[0]:
+                raise ValueError(f"sample_weight must have same length as X: {sample_weight.shape[0]} != {X.shape[0]}")
+            if np.any(sample_weight < 0):
+                raise ValueError("sample_weight must be non-negative")
         
         # Create split thresholds for features (same as other GATree methods)
         self.att_values = {}
@@ -244,7 +269,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             # Evaluation of population
             population = Parallel(n_jobs=self.n_jobs)(
                 delayed(GATreeActionSelector._predict_and_evaluate)(
-                    tree, X, Y, self.fitness_function, True, **fitness_function_kwargs
+                    tree, X, Y, self.fitness_function, True, sample_weight, **fitness_function_kwargs
                 ) for tree in population
             )
 
@@ -322,7 +347,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
         return self
 
     @staticmethod
-    def _predict_and_evaluate(tree, X, y, fitness_function, is_training=False, **fitness_function_kwargs):
+    def _predict_and_evaluate(tree, X, y, fitness_function, is_training=False, sample_weight=None, **fitness_function_kwargs):
         """
         Evaluate a tree on time series data (overrides base class method).
         
@@ -332,6 +357,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             y (pandas.DataFrame): Reward calculation data
             fitness_function (function): Fitness function
             is_training (bool): Whether this is for training or prediction
+            sample_weight (array-like, optional): Sample weights
             **fitness_function_kwargs: Additional arguments for fitness function
         
         Returns:
@@ -339,6 +365,10 @@ class GATreeActionSelector(GATree, BaseEstimator):
         """
         # Clear previous evaluation
         tree.clear_evaluation()
+        
+        # Pass sample weights to fitness function
+        if sample_weight is not None:
+            fitness_function_kwargs['sample_weight'] = sample_weight
         
         # Calculate fitness using our custom fitness function signature
         tree.fitness = fitness_function(tree, X, y, **fitness_function_kwargs)
