@@ -43,7 +43,16 @@
   - Robust error handling - callback failures don't crash training
   - Enables custom progress bars, logging, and early stopping
 
-### 6. **Comprehensive Error Handling & Validation** ⭐ NEW
+### 6. **Early Stopping Support** ⭐ NEW
+- **Enhancement**: Added early stopping functionality to all GATree `fit()` methods
+- **Purpose**: Prevent overfitting and improve training efficiency
+- **Features**:
+  - Configurable patience and improvement thresholds
+  - Optional restoration of best weights
+  - Seamless integration with progress callbacks
+  - Automatic training termination when no improvement is detected
+
+### 7. **Comprehensive Error Handling & Validation** ⭐ NEW
 - **Enhancement**: Added extensive input validation and error recovery
 - **Features**:
   - Parameter validation (population_size, mutation_probability, elite_size, etc.)
@@ -105,6 +114,20 @@ sample_weights = np.random.uniform(0.5, 2.0, size=len(X))
 
 classifier = GATreeClassifier(random_state=42)
 classifier.fit(X, y, sample_weight=sample_weights)
+```
+
+### Early Stopping:
+```python
+# Enable early stopping to prevent overfitting
+classifier.fit(
+    X, y,
+    population_size=100,
+    max_iter=1000,
+    early_stopping=True,
+    patience=50,
+    min_delta=0.001,
+    restore_best_weights=True
+)
 ```
 
 ### Progress Monitoring:

@@ -194,7 +194,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
         return fitness
 
     def fit(self, X, Y, sample_weight=None, population_size=100, max_iter=1000, mutation_probability=0.15, 
-            elite_size=2, selection_tournament_size=3, fitness_function_kwargs={}, progress_callback=None):
+            elite_size=2, selection_tournament_size=3, fitness_function_kwargs={}, progress_callback=None,
+            early_stopping=False, patience=50, min_delta=1e-4, restore_best_weights=True):
         """
         Fit the action selector to time series data.
 
@@ -209,6 +210,10 @@ class GATreeActionSelector(GATree, BaseEstimator):
             selection_tournament_size (int, optional): Tournament size for selection
             fitness_function_kwargs (dict, optional): Additional kwargs for fitness function
             progress_callback (callable, optional): Function called after each generation with (generation, best_fitness, avg_fitness, best_reward).
+            early_stopping (bool, optional): Whether to use early stopping (default: False).
+            patience (int, optional): Number of generations to wait for improvement before stopping (default: 50).
+            min_delta (float, optional): Minimum change in fitness to qualify as an improvement (default: 1e-4).
+            restore_best_weights (bool, optional): Whether to restore the best tree when early stopping (default: True).
 
         Returns:
             self: The fitted action selector
@@ -240,6 +245,17 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 raise ValueError("elite_size must be between 0 and population_size")
             if selection_tournament_size <= 0:
                 raise ValueError("selection_tournament_size must be positive")
+            if early_stopping:
+                if patience <= 0:
+                    raise ValueError("patience must be positive when early_stopping is True")
+                if min_delta < 0:
+                    raise ValueError("min_delta must be non-negative")
+            
+            # Early stopping variables
+            best_fitness_so_far = float('inf')
+            best_tree = None
+            patience_counter = 0
+            stopped_early = False
             
             # Create split thresholds for features (same as other GATree methods)
             self.att_values = {}
@@ -320,6 +336,26 @@ class GATreeActionSelector(GATree, BaseEstimator):
                         best_reward = float('-inf')  # Invalid tree
                     self._best_rewards.append(best_reward)
                     
+                    # Early stopping check
+                    if early_stopping:
+                        if best_fitness < best_fitness_so_far - min_delta:
+                            best_fitness_so_far = best_fitness
+                            if restore_best_weights:
+                                best_tree = Node.copy(population[0])
+                            patience_counter = 0
+                        else:
+                            patience_counter += 1
+                            
+                        if patience_counter >= patience:
+                            stopped_early = True
+                            if progress_callback is not None:
+                                try:
+                                    progress_callback(i, best_fitness, avg_fitness, best_reward)
+                                except Exception as callback_error:
+                                    print(f"Warning: Progress callback failed at generation {i}: {callback_error}")
+                            print(f"Early stopping at generation {i} (patience={patience})")
+                            break
+                    
                     # Call progress callback if provided
                     if progress_callback is not None:
                         try:
@@ -388,7 +424,12 @@ class GATreeActionSelector(GATree, BaseEstimator):
                     # Continue with current population
                     continue
 
-            self._tree = population[0]
+            # Set the final tree (best tree if early stopping with restore_best_weights, otherwise current best)
+            if early_stopping and restore_best_weights and best_tree is not None:
+                self._tree = best_tree
+            else:
+                self._tree = population[0]
+            
             return self
             
         except Exception as e:

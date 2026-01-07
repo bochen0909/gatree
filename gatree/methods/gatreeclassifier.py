@@ -77,7 +77,8 @@ class GATreeClassifier(ClassifierMixin, GATree):
         return (1 - accuracy) + complexity_penalty
 
     def fit(self, X, y, sample_weight=None, population_size=150, max_iter=2000, mutation_probability=0.1, elite_size=1,
-            selection_tournament_size=2, fitness_function_kwargs={}, progress_callback=None):
+            selection_tournament_size=2, fitness_function_kwargs={}, progress_callback=None, 
+            early_stopping=False, patience=50, min_delta=1e-4, restore_best_weights=True):
         """
         Fit a tree to a training set. The population size, maximum iterations, mutation probability, elite size, and selection tournament size can be specified.
 
@@ -92,6 +93,10 @@ class GATreeClassifier(ClassifierMixin, GATree):
             selection_tournament_size (int, optional): Number of trees in tournament.
             fitness_function_kwargs (dict, optional): Additional kwargs to be passed to the fitness_function.
             progress_callback (callable, optional): Function called after each generation with (generation, best_fitness, avg_fitness).
+            early_stopping (bool, optional): Whether to use early stopping (default: False).
+            patience (int, optional): Number of generations to wait for improvement before stopping (default: 50).
+            min_delta (float, optional): Minimum change in fitness to qualify as an improvement (default: 1e-4).
+            restore_best_weights (bool, optional): Whether to restore the best tree when early stopping (default: True).
 
         Returns:
             Node: The fitted tree.
@@ -123,6 +128,17 @@ class GATreeClassifier(ClassifierMixin, GATree):
                 raise ValueError("elite_size must be between 0 and population_size")
             if selection_tournament_size <= 0:
                 raise ValueError("selection_tournament_size must be positive")
+            if early_stopping:
+                if patience <= 0:
+                    raise ValueError("patience must be positive when early_stopping is True")
+                if min_delta < 0:
+                    raise ValueError("min_delta must be non-negative")
+            
+            # Early stopping variables
+            best_fitness_so_far = float('inf')
+            best_tree = None
+            patience_counter = 0
+            stopped_early = False
             
             self.att_values = {i: [(min_val + max_val) / 2 for min_val, max_val in zip(sorted(
                 X.iloc[:, i].unique())[:-1], sorted(X.iloc[:, i].unique())[1:])] for i in range(X.shape[1])}
@@ -166,6 +182,26 @@ class GATreeClassifier(ClassifierMixin, GATree):
                     
                     self._best_fitness.append(best_fitness)
                     self._avg_fitness.append(avg_fitness)
+                    
+                    # Early stopping check
+                    if early_stopping:
+                        if best_fitness < best_fitness_so_far - min_delta:
+                            best_fitness_so_far = best_fitness
+                            if restore_best_weights:
+                                best_tree = Node.copy(population[0])
+                            patience_counter = 0
+                        else:
+                            patience_counter += 1
+                            
+                        if patience_counter >= patience:
+                            stopped_early = True
+                            if progress_callback is not None:
+                                try:
+                                    progress_callback(i, best_fitness, avg_fitness)
+                                except Exception as callback_error:
+                                    print(f"Warning: Progress callback failed at generation {i}: {callback_error}")
+                            print(f"Early stopping at generation {i} (patience={patience})")
+                            break
                     
                     # Call progress callback if provided
                     if progress_callback is not None:
@@ -224,7 +260,12 @@ class GATreeClassifier(ClassifierMixin, GATree):
                     # Continue with current population
                     continue
 
-            self._tree = population[0]
+            # Set the final tree (best tree if early stopping with restore_best_weights, otherwise current best)
+            if early_stopping and restore_best_weights and best_tree is not None:
+                self._tree = best_tree
+            else:
+                self._tree = population[0]
+            
             return self._tree
             
         except Exception as e:
