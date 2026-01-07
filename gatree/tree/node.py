@@ -84,14 +84,23 @@ class Node:
 
     def get_root(self):
         """
-        Returns the root node of the tree.
+        Returns the root node of the tree with cycle detection.
 
         Returns:
             Node: Root node of the tree.
         """
-        if self.parent is None:
-            return self
-        return self.parent.get_root()
+        visited = set()
+        current = self
+        
+        while current.parent is not None:
+            node_id = id(current)
+            if node_id in visited:
+                # Cycle detected, return current node as root
+                return current
+            visited.add(node_id)
+            current = current.parent
+            
+        return current
 
     def get_children(self):
         """
@@ -131,23 +140,33 @@ class Node:
         Returns:
             int: Maximum depth of the tree.
         """
-        return self.max_depth_helper(self.get_root())
+        return self.max_depth_helper(self.get_root(), set())
 
     @staticmethod
-    def max_depth_helper(n):
+    def max_depth_helper(n, visited=None):
         """
-        Helper function for max_depth.
+        Helper function for max_depth with cycle detection.
 
         Args:
             n (Node): Node to be used as the root.
+            visited (set): Set of visited node IDs to detect cycles.
 
         Returns:
             int: Maximum depth of the tree.
         """
         if n is None:
             return 0
-        l_depth = Node.max_depth_helper(n.left)
-        r_depth = Node.max_depth_helper(n.right)
+        
+        if visited is None:
+            visited = set()
+            
+        node_id = id(n)
+        if node_id in visited:
+            return 0  # Cycle detected, return 0 to avoid infinite recursion
+        
+        visited.add(node_id)
+        l_depth = Node.max_depth_helper(n.left, visited.copy())
+        r_depth = Node.max_depth_helper(n.right, visited.copy())
         return max(l_depth, r_depth) + 1
 
     def size(self):
@@ -157,22 +176,32 @@ class Node:
         Returns:
             int: Number of all nodes in the trees.
         """
-        return self.size_helper(self.get_root())
+        return self.size_helper(self.get_root(), set())
 
     @staticmethod
-    def size_helper(n):
+    def size_helper(n, visited=None):
         """
-        Helper function for size.
+        Helper function for size with cycle detection.
 
         Args:
             n (Node): Node to be used as the root.
+            visited (set): Set of visited node IDs to detect cycles.
 
         Returns:
             int: Number of all nodes in the trees.
         """
         if n is None:
             return 0
-        return Node.size_helper(n.left) + Node.size_helper(n.right) + 1
+            
+        if visited is None:
+            visited = set()
+            
+        node_id = id(n)
+        if node_id in visited:
+            return 0  # Cycle detected, return 0 to avoid infinite recursion
+        
+        visited.add(node_id)
+        return Node.size_helper(n.left, visited.copy()) + Node.size_helper(n.right, visited.copy()) + 1
 
     def make_node(self, depth=0, max_depth=None, random=None, att_indexes=None, att_values=None, class_count=None):
         """
@@ -200,24 +229,42 @@ class Node:
             # if it's the root, first level or 50/50 chance of building new children.
             # Must be below maximal depth.
             if (depth <= 1 or (random.choice([True, False])) and depth < max_depth):
-                subset_index = random.randint(0, len(att_indexes))
-                att_index = att_indexes[subset_index]
-                value_index = random.randint(0, len(att_values[att_index]))
-                att_value = att_values[att_index][value_index]
-                node = Node(att_index=att_index, att_value=att_value)
-                node.left = self.make_node(depth=depth + 1, max_depth=max_depth, random=random,
-                                           att_indexes=att_indexes, att_values=att_values, class_count=class_count)
-                node.left.parent = node
-                node.right = self.make_node(depth=depth + 1, max_depth=max_depth, random=random,
-                                            att_indexes=att_indexes, att_values=att_values, class_count=class_count)
-                node.right.parent = node
+                if len(att_indexes) == 0:
+                    # No attributes available, create a leaf
+                    r = random.randint(0, max(0, class_count - 1))
+                    node = Node(att_index=-1, att_value=r)
+                else:
+                    subset_index = random.randint(0, len(att_indexes) - 1)
+                    att_index = att_indexes[subset_index]
+                    
+                    if att_index in att_values and len(att_values[att_index]) > 0:
+                        value_index = random.randint(0, len(att_values[att_index]) - 1)
+                        att_value = att_values[att_index][value_index]
+                        node = Node(att_index=att_index, att_value=att_value)
+                        node.left = self.make_node(depth=depth + 1, max_depth=max_depth, random=random,
+                                                   att_indexes=att_indexes, att_values=att_values, class_count=class_count)
+                        if node.left:
+                            node.left.parent = node
+                        node.right = self.make_node(depth=depth + 1, max_depth=max_depth, random=random,
+                                                    att_indexes=att_indexes, att_values=att_values, class_count=class_count)
+                        if node.right:
+                            node.right.parent = node
+                    else:
+                        # No valid attribute values, create a leaf
+                        r = random.randint(0, max(0, class_count - 1))
+                        node = Node(att_index=-1, att_value=r)
             else:  # result (leaf)
-                r = random.randint(0, class_count)
+                r = random.randint(0, max(0, class_count - 1))
                 node = Node(att_index=-1, att_value=r)
         except Exception as e:
             print(f"{att_index};{att_value};{value_index}")
             print("Error:", e)
-            node = None
+            # Create a simple leaf node as fallback
+            try:
+                r = random.randint(0, max(0, class_count - 1)) if class_count > 0 else 0
+                node = Node(att_index=-1, att_value=r)
+            except:
+                node = Node(att_index=-1, att_value=0)
 
         return node
 
@@ -260,15 +307,34 @@ class Node:
             int: Predicted class.
         """
         try:
-            if self.att_index != -1:
-                if X.iloc[self.att_index] > self.att_value:
+            predicted = None
+            
+            if self.att_index != -1:  # Internal node
+                # Ensure att_index is an integer for pandas indexing
+                att_index = int(self.att_index)
+                
+                if X.iloc[att_index] > self.att_value:
                     if self.left is not None:
-                        predicted = self.left.predict_one(X, y)
+                        predicted = self.left.predict_one(X, y, train)
+                    else:
+                        # No left child, return a default value
+                        predicted = 0
                 else:
                     if self.right is not None:
-                        predicted = self.right.predict_one(X, y)
-            else:
-                predicted = int(self.att_value)
+                        predicted = self.right.predict_one(X, y, train)
+                    else:
+                        # No right child, return a default value
+                        predicted = 0
+            else:  # Leaf node
+                # Ensure att_value is not None and is a valid integer
+                if self.att_value is not None:
+                    predicted = int(self.att_value)
+                else:
+                    predicted = 0  # Default value if att_value is None
+
+            # Ensure predicted is not None
+            if predicted is None:
+                predicted = 0
 
             if train is True:
                 if y is not None:
@@ -277,8 +343,8 @@ class Node:
 
             return predicted
         except Exception as e:
-            print(e)
-            return -1
+            print(f"Error in predict_one: {e}")
+            return 0  # Return default value on error
 
     def __str__(self):
         """

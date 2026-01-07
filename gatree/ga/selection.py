@@ -28,19 +28,25 @@ class Selection:
             tuple: The two selected trees.
         """
         valid = False
-        while not valid:
+        attempts = 0
+        max_attempts = 100  # Prevent infinite loops
+        
+        while not valid and attempts < max_attempts:
             selection = []
+            attempts += 1
 
             # Select two trees
             for _ in range(2):
+                # Ensure tournament size doesn't exceed population size
+                actual_tournament_size = min(selection_tournament_size, len(population))
                 indices = random.choice(len(population),
-                                        selection_tournament_size, replace=False)
+                                        actual_tournament_size, replace=False)
                 candidates = [population[i] for i in indices]
                 candidates.sort(key=lambda x: x.fitness, reverse=False)
                 selection.append(candidates[0])
 
-            # Check if trees are different
-            if selection[0] != selection[1]:
+            # Check if trees are different (or if we've tried too many times)
+            if selection[0] != selection[1] or attempts >= max_attempts:
                 valid = True
 
         return selection[0], selection[1]

@@ -8,3 +8,21 @@ __pycache__
 /paper/*.pdf
 *.bat
 .vscode
+
+# Temporary files from examples and demos
+*.json
+!docs/**/*.json
+!examples/**/data/*.json
+
+# Python cache and build files
+*.pyc
+*.pyo
+*.egg-info/
+build/
+.coverage
+.tox/
+
+# IDE files
+.idea/
+*.swp
+*.swo

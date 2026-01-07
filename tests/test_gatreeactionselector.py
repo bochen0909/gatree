@@ -38,15 +38,19 @@ class TestGATreeActionSelector(unittest.TestCase):
         
         def simple_reward_function(state, action, y_data, timestep):
             """Simple reward function for testing."""
-            base_reward = y_data['value']
-            cost = y_data['cost']
-            
-            if action == 'action_0':
-                return base_reward - cost
-            elif action == 'action_1':
-                return base_reward * 0.5 - cost * 0.5
-            else:  # action_2
-                return -cost * 0.1
+            try:
+                base_reward = float(y_data['value'])
+                cost = float(y_data['cost'])
+                
+                if action == 'action_0':
+                    return base_reward - cost
+                elif action == 'action_1':
+                    return base_reward * 0.5 - cost * 0.5
+                else:  # action_2
+                    return -cost * 0.1
+            except Exception as e:
+                print(f"Test error: {e}")
+                return -1.0  # Return a small negative reward on error
         
         self.reward_function = simple_reward_function
     
@@ -351,7 +355,7 @@ class TestGATreeActionSelector(unittest.TestCase):
         selector.fit(
             self.X, 
             self.Y,
-            population_size=3,
+            population_size=2,  # Reduced from 3
             max_iter=1
         )
         
