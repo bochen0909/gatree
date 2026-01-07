@@ -49,7 +49,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
     """
 
     def __init__(self, action_space, reward_function, max_depth=None, discount_factor=1.0, 
-                 random=None, n_jobs=1, random_state=None):
+                 discount_direction='forward', random=None, n_jobs=1, random_state=None):
         """
         Initialize the Genetic Algorithm Action Selector.
 
@@ -58,6 +58,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             reward_function (callable): Function(state, action, y_data, timestep) -> reward
             max_depth (int, optional): Maximum depth of the tree
             discount_factor (float, optional): Future reward discount factor
+            discount_direction (str, optional): 'forward' (standard) or 'backward' (reverse discount)
             random (Random, optional): Random number generator
             n_jobs (int, optional): Number of jobs to run in parallel
             random_state (int, optional): Seed for reproducibility
@@ -67,14 +68,20 @@ class GATreeActionSelector(GATree, BaseEstimator):
         self.action_space = action_space
         self.reward_function = reward_function
         self.discount_factor = discount_factor
+        self.discount_direction = discount_direction
         self.action_count = len(action_space)
         self._best_rewards = []
+        
+        # Validate discount direction
+        if discount_direction not in ['forward', 'backward']:
+            raise ValueError("discount_direction must be 'forward' or 'backward'")
         
         # Set the fitness function to our reward-based function
         self.fitness_function = self.default_fitness_function
 
     @staticmethod
-    def default_fitness_function(root, X, Y, action_space, reward_function, discount_factor=1.0, **kwargs):
+    def default_fitness_function(root, X, Y, action_space, reward_function, discount_factor=1.0, 
+                                discount_direction='forward', **kwargs):
         """
         Default fitness function for action selection based on cumulative rewards.
         
@@ -87,7 +94,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
             Y (pandas.DataFrame): Reward calculation data
             action_space (list): List of possible actions
             reward_function (callable): Reward calculation function
-            discount_factor (float): Discount factor for future rewards
+            discount_factor (float): Discount factor for rewards
+            discount_direction (str): 'forward' (standard) or 'backward' (reverse discount)
 
         Returns:
             float: Fitness value (lower is better, so we negate rewards)
@@ -97,9 +105,10 @@ class GATreeActionSelector(GATree, BaseEstimator):
             return float('inf')
         
         total_reward = 0.0
+        n_timesteps = len(X)
         
         # Simulate action sequence and calculate rewards
-        for t in range(len(X)):
+        for t in range(n_timesteps):
             try:
                 # Get action index from tree prediction
                 action_idx = int(root.predict_one(X.iloc[t], train=False))
@@ -114,8 +123,19 @@ class GATreeActionSelector(GATree, BaseEstimator):
                 # Calculate reward for this timestep
                 reward = reward_function(X.iloc[t], action, Y.iloc[t], t)
                 
-                # Apply discount factor
-                discounted_reward = reward * (discount_factor ** t)
+                # Apply discount factor based on direction
+                if discount_direction == 'forward':
+                    # Standard discounting: earlier rewards worth more
+                    discounted_reward = reward * (discount_factor ** t)
+                elif discount_direction == 'backward':
+                    # Reverse discounting: later rewards worth more
+                    # Discount from the end: (n_timesteps - 1 - t)
+                    reverse_t = n_timesteps - 1 - t
+                    discounted_reward = reward * (discount_factor ** reverse_t)
+                else:
+                    # No discounting (fallback)
+                    discounted_reward = reward
+                
                 total_reward += discounted_reward
                 
             except Exception as e:
@@ -174,7 +194,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
         fitness_function_kwargs.update({
             'action_space': self.action_space,
             'reward_function': self.reward_function,
-            'discount_factor': self.discount_factor
+            'discount_factor': self.discount_factor,
+            'discount_direction': self.discount_direction
         })
 
         # Generation of initial population
@@ -426,17 +447,44 @@ class GATreeActionSelector(GATree, BaseEstimator):
         except ImportError:
             print("Matplotlib not available - cannot plot fitness evolution")
 
+    def predict_action(self, X_instance):
+        """
+        Predict a single action for a given instance.
+        
+        Args:
+            X_instance: Single instance (pandas Series or similar)
+            
+        Returns:
+            int: Predicted action index
+        """
+        if self._tree is None:
+            raise ValueError("Model must be fitted before making predictions")
+        
+        action_idx = self._tree.predict_one(X_instance, train=False)
+        
+        # Ensure action index is valid
+        if action_idx < 0 or action_idx >= len(self.action_space):
+            action_idx = 0  # Default to first action
+            
+        return action_idx
+
     def __str__(self):
         """String representation of the action selector."""
         if self._tree is None:
-            return f"GATreeActionSelector(actions={self.action_space}, unfitted)"
+            discount_info = f"discount={self.discount_factor}"
+            if self.discount_direction == 'backward':
+                discount_info += " (backward)"
+            return f"GATreeActionSelector(actions={self.action_space}, {discount_info}, unfitted)"
         
         try:
             # Add timeout protection for potentially problematic tree operations
             depth = self._tree.max_depth()
             size = self._tree.size()
+            discount_info = f"discount={self.discount_factor}"
+            if self.discount_direction == 'backward':
+                discount_info += " (backward)"
             return (f"GATreeActionSelector(actions={self.action_space}, "
-                    f"depth={depth}, size={size})")
+                    f"{discount_info}, depth={depth}, size={size})")
         except Exception as e:
             return f"GATreeActionSelector(actions={self.action_space}, error={str(e)})"
 

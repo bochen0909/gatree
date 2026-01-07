@@ -191,9 +191,16 @@ def main():
         reward_function=reward_function_with_multiplier,
         max_depth=7,
         discount_factor=0.95,  # Moderate discount for future rewards
+        discount_direction='forward',  # Can be changed to 'backward' for end-focused optimization
         n_jobs=2,
         random_state=42
     )
+    
+    print(f"Discount direction: {selector.discount_direction}")
+    if selector.discount_direction == 'backward':
+        print("→ Optimizing for end-of-period performance (steady-state)")
+    else:
+        print("→ Optimizing for early performance (immediate efficiency)")
     
     # Train the selector
     selector.fit(

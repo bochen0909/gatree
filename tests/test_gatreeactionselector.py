@@ -68,11 +68,34 @@ class TestGATreeActionSelector(unittest.TestCase):
         self.assertEqual(selector.reward_function, self.reward_function)
         self.assertEqual(selector.max_depth, 5)
         self.assertEqual(selector.discount_factor, 0.9)
+        self.assertEqual(selector.discount_direction, 'forward')  # Default
         self.assertEqual(selector.action_count, 3)
         self.assertIsNone(selector._tree)
         self.assertEqual(len(selector._best_fitness), 0)
         self.assertEqual(len(selector._avg_fitness), 0)
         self.assertEqual(len(selector._best_rewards), 0)
+    
+    def test_backward_discounting_initialization(self):
+        """Test GATreeActionSelector initialization with backward discounting."""
+        selector = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            max_depth=5,
+            discount_factor=0.8,
+            discount_direction='backward',
+            random_state=42
+        )
+        
+        self.assertEqual(selector.discount_factor, 0.8)
+        self.assertEqual(selector.discount_direction, 'backward')
+        
+        # Test invalid discount direction
+        with self.assertRaises(ValueError):
+            GATreeActionSelector(
+                action_space=self.action_space,
+                reward_function=self.reward_function,
+                discount_direction='invalid'
+            )
     
     def test_fit_basic(self):
         """Test basic fitting functionality."""
