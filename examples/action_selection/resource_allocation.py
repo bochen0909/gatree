@@ -186,12 +186,33 @@ def main():
     def reward_function_with_multiplier(state, action, cost_data, timestep):
         return resource_allocation_reward(state, action, cost_data, timestep, allocation_multiplier)
     
+    # Optional: Define a global reward function for smoother allocation
+    def allocation_smoothness_reward(rewards, actions, X, Y):
+        """Global reward that encourages smoother reward patterns."""
+        if len(rewards) < 2:
+            return 0.0
+        
+        # Reward for lower volatility
+        volatility = np.std(rewards)
+        smoothness_bonus = max(0, 10 - volatility)
+        
+        # Small penalty for frequent allocation changes
+        if len(actions) > 1:
+            changes = sum(1 for i in range(1, len(actions)) if actions[i] != actions[i-1])
+            change_penalty = changes * 0.5
+        else:
+            change_penalty = 0
+        
+        return smoothness_bonus - change_penalty
+    
     selector = GATreeActionSelector(
         action_space=action_space,
         reward_function=reward_function_with_multiplier,
         max_depth=7,
         discount_factor=0.95,  # Moderate discount for future rewards
         discount_direction='forward',  # Can be changed to 'backward' for end-focused optimization
+        global_reward_function=None,  # Set to allocation_smoothness_reward for smoother allocation
+        global_reward_weight=0.1,  # Weight for global reward component
         n_jobs=2,
         random_state=42
     )
@@ -201,6 +222,11 @@ def main():
         print("→ Optimizing for end-of-period performance (steady-state)")
     else:
         print("→ Optimizing for early performance (immediate efficiency)")
+    
+    if selector.global_reward_function is not None:
+        print(f"→ Using global reward function with weight {selector.global_reward_weight}")
+    else:
+        print("→ No global reward function (standard optimization)")
     
     # Train the selector
     selector.fit(

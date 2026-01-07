@@ -97,6 +97,32 @@ class TestGATreeActionSelector(unittest.TestCase):
                 discount_direction='invalid'
             )
     
+    def test_global_reward_initialization(self):
+        """Test GATreeActionSelector initialization with global reward function."""
+        def dummy_global_reward(rewards, actions, X, Y):
+            return sum(rewards) * 0.1
+        
+        selector = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            global_reward_function=dummy_global_reward,
+            global_reward_weight=0.5,
+            random_state=42
+        )
+        
+        self.assertEqual(selector.global_reward_function, dummy_global_reward)
+        self.assertEqual(selector.global_reward_weight, 0.5)
+        
+        # Test without global reward function
+        selector_no_global = GATreeActionSelector(
+            action_space=self.action_space,
+            reward_function=self.reward_function,
+            random_state=42
+        )
+        
+        self.assertIsNone(selector_no_global.global_reward_function)
+        self.assertEqual(selector_no_global.global_reward_weight, 1.0)
+    
     def test_fit_basic(self):
         """Test basic fitting functionality."""
         selector = GATreeActionSelector(
