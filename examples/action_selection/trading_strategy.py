@@ -73,7 +73,7 @@ def generate_synthetic_market_data(n_timesteps=200, random_state=42):
     return features, price_data
 
 
-def trading_reward_function(state, action, price_data, timestep):
+def trading_reward_function(state, action, price_data, timestep, previous_action=None):
     """
     Calculate reward for a trading action.
     
