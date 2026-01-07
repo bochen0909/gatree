@@ -6,14 +6,6 @@ class Mutation:
     Class implementing the mutation operator for the genetic algorithm.
     """
     @staticmethod
-    def _rand_index(rng, high):
-        if high <= 0:
-            return 0
-        if hasattr(rng, "randrange"):
-            return rng.randrange(high)
-        return int(rng.randint(0, high))
-
-    @staticmethod
     def mutation(root, att_indexes, att_values, class_count, random):
         """
         Mutation introduces random changes to a tree to maintain genetic diversity and explore new solutions. This helps in avoiding local optima by introducing new genetic structures.
@@ -47,7 +39,7 @@ class Mutation:
                 Mutation.mutate_leaf(
                     node, att_indexes, att_values, class_count, random)
                 break
-            elif Mutation._rand_index(random, depth + 1) == 0:  # for mid-tree nodes
+            elif random.randint(0, depth) == 0:  # for mid-tree nodes
                 Mutation.mutate_operator(
                     node, att_indexes, att_values, class_count, random)
                 break
@@ -97,17 +89,11 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
-        if class_count <= 1:
-            return
-            
         result_old = node.att_value
         result_new = result_old
 
-        attempts = 0
-        max_attempts = 100
-        while result_old == result_new and attempts < max_attempts:  # classes must be different
-            result_new = Mutation._rand_index(random, class_count)
-            attempts += 1
+        while result_old == result_new:  # classes must be different
+            result_new = random.randint(0, class_count)
 
         node.att_value = result_new
 
@@ -177,30 +163,18 @@ class Mutation:
             att_values (list): List of attribute values.
             random (Random): Random number generator.
         """
-        if len(att_indexes) == 0:
-            return
-            
         att_index_old = node.att_index
         att_index_new = att_index_old
 
         att_value_old = node.att_value
         att_value_new = att_value_old
 
-        attempts = 0
-        max_attempts = 100
-        while att_index_old == att_index_new and attempts < max_attempts:
-            subset_index = Mutation._rand_index(random, len(att_indexes))
-            att_index_new = att_indexes[subset_index]
-            
-            if att_index_new in att_values and len(att_values[att_index_new]) > 0:
-                value_index = Mutation._rand_index(random, len(att_values[att_index_new]))
-                att_value_new = att_values[att_index_new][value_index]
-            else:
-                att_value_new = 0
-            attempts += 1
+        while att_index_old == att_index_new:
+            att_index_new = random.randint(0, len(att_indexes))
+            att_value_new = random.randint(0, len(att_values[att_index_new]))
 
         node.att_index = att_index_new
-        node.att_value = att_value_new
+        node.att_value = att_values[att_index_new][att_value_new]
 
     @staticmethod
     def change_attribute_value(node, att_values, random):
@@ -214,20 +188,13 @@ class Mutation:
         """
         att_index = node.att_index
 
-        if att_index not in att_values or len(att_values[att_index]) == 0:
-            return
-
         att_value_old = node.att_value
         att_value_new = att_value_old
 
-        attempts = 0
-        max_attempts = 100
-        while att_value_old == att_value_new and attempts < max_attempts:
-            value_index = Mutation._rand_index(random, len(att_values[att_index]))
-            att_value_new = att_values[att_index][value_index]
-            attempts += 1
+        while att_value_old == att_value_new:
+            att_value_new = random.randint(0, len(att_values[att_index]))
 
-        node.att_value = att_value_new
+        node.att_value = att_values[att_index][att_value_new]
 
     @staticmethod
     def exchange_tree_for_class(node, class_count, random):
@@ -239,15 +206,12 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
-        if node is None or node.parent is None:
-            return
-            
         parent = node.parent
         left = False
         if parent.left == node:
             left = True
 
-        leaf = Node(att_index=-1, att_value=Mutation._rand_index(random, class_count))
+        leaf = Node(att_index=-1, att_value=random.randint(0, class_count))
         leaf.parent = parent
 
         if left:
@@ -267,9 +231,6 @@ class Mutation:
             class_count (int): Number of classes.
             random (Random): Random number generator.
         """
-        if node is None or node.parent is None:
-            return
-            
         parent = node.parent
         left = False
         if parent.left == node:
@@ -278,11 +239,6 @@ class Mutation:
         n = Node()
         subtree = n.make_node(max_depth=node.depth(), random=random,
                               att_indexes=att_indexes, att_values=att_values, class_count=class_count)
-        
-        # Ensure subtree is not None
-        if subtree is None:
-            subtree = Node(att_index=-1, att_value=Mutation._rand_index(random, class_count))
-            
         subtree.parent = parent
 
         if left:
