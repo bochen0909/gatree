@@ -109,10 +109,6 @@ class GATreeActionSelector(GATree, BaseEstimator):
         Returns:
             float: Fitness value (lower is better, so we negate rewards)
         """
-        # Check if tree has any predictions (for test compatibility)
-        if hasattr(root, 'y_pred') and len(root.y_pred) == 0:
-            return float('inf')
-        
         total_reward = 0.0
         n_timesteps = len(X)
         individual_rewards = []
