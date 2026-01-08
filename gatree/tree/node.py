@@ -392,6 +392,99 @@ class Node:
             print(f"Error in predict_one: {e}")
             return 0  # Return default value on error
 
+    def predict_one_with_path(self, X, y=None, train=False):
+        """
+        Predicts the class of the given instance and returns the decision path.
+
+        Args:
+            X (list): Instance to be predicted.
+            y (int): Actual class of the given instance.
+            train (bool): If it's used for training or only predicting
+
+        Returns:
+            tuple: (predicted_class, decision_path)
+                - predicted_class (int): Predicted class
+                - decision_path (list): List of decision steps taken through the tree
+        """
+        try:
+            predicted = None
+            path = []
+            
+            if self.att_index != -1:  # Internal node
+                # Ensure att_index is an integer for pandas indexing
+                att_index = int(self.att_index)
+                feature_value = X.iloc[att_index]
+                
+                # Record the decision at this node
+                decision_info = {
+                    'node_type': 'internal',
+                    'feature_index': att_index,
+                    'feature_name': f'feature_{att_index}' if not hasattr(X, 'index') else X.index[att_index],
+                    'feature_value': feature_value,
+                    'threshold': self.att_value,
+                    'condition': f'feature_{att_index} > {self.att_value}',
+                    'decision': feature_value > self.att_value
+                }
+                path.append(decision_info)
+                
+                if feature_value > self.att_value:
+                    if self.left is not None:
+                        predicted, child_path = self.left.predict_one_with_path(X, y, train)
+                        path.extend(child_path)
+                    else:
+                        # No left child, return a default value
+                        predicted = 0
+                        path.append({
+                            'node_type': 'missing_child',
+                            'direction': 'left',
+                            'default_value': 0
+                        })
+                else:
+                    if self.right is not None:
+                        predicted, child_path = self.right.predict_one_with_path(X, y, train)
+                        path.extend(child_path)
+                    else:
+                        # No right child, return a default value
+                        predicted = 0
+                        path.append({
+                            'node_type': 'missing_child',
+                            'direction': 'right',
+                            'default_value': 0
+                        })
+            else:  # Leaf node
+                # Ensure att_value is not None and is a valid integer
+                if self.att_value is not None:
+                    predicted = int(self.att_value)
+                else:
+                    predicted = 0  # Default value if att_value is None
+                
+                # Record the leaf node information
+                leaf_info = {
+                    'node_type': 'leaf',
+                    'predicted_value': predicted,
+                    'leaf_value': self.att_value
+                }
+                path.append(leaf_info)
+
+            # Ensure predicted is not None
+            if predicted is None:
+                predicted = 0
+
+            if train is True:
+                if y is not None:
+                    self.y_true.append(int(y))
+                self.y_pred.append(predicted)
+
+            return predicted, path
+        except Exception as e:
+            print(f"Error in predict_one_with_path: {e}")
+            error_path = [{
+                'node_type': 'error',
+                'error_message': str(e),
+                'default_value': 0
+            }]
+            return 0, error_path  # Return default value and error path on error
+
     def __str__(self):
         """
         Returns a string representation of this node.

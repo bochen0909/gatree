@@ -657,3 +657,51 @@ class GATreeActionSelector(GATree, BaseEstimator):
     def __repr__(self):
         """Detailed representation of the action selector."""
         return self.__str__()
+
+    def predict_actions_with_path(self, X):
+        """
+        Predict action sequence and return decision paths for interpretability.
+        
+        Args:
+            X (pandas.DataFrame): Time series features
+            
+        Returns:
+            tuple: (actions, paths) where actions are the actual actions and paths contain traversal info
+        """
+        if self._tree is None:
+            raise ValueError("Action selector must be fitted before making predictions")
+        
+        actions = []
+        paths = []
+        
+        for t in range(len(X)):
+            action_idx, path = self._tree.predict_one_with_path(X.iloc[t], train=False)
+            # Ensure valid action index
+            if action_idx < 0 or action_idx >= len(self.action_space):
+                action_idx = 0
+            actions.append(self.action_space[action_idx])
+            paths.append(path)
+        
+        return actions, paths
+
+    def predict_single_action_with_path(self, X_instance):
+        """
+        Predict a single action and return the decision path.
+        
+        Args:
+            X_instance: Single instance (pandas Series or similar)
+            
+        Returns:
+            tuple: (action, path) where action is the predicted action and path contains decision steps
+        """
+        if self._tree is None:
+            raise ValueError("Action selector must be fitted before making predictions")
+        
+        action_idx, path = self._tree.predict_one_with_path(X_instance, train=False)
+        
+        # Ensure valid action index
+        if action_idx < 0 or action_idx >= len(self.action_space):
+            action_idx = 0
+        
+        action = self.action_space[action_idx]
+        return action, path

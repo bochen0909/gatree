@@ -748,3 +748,45 @@ class GATreeContinuousActionSelector(GATree, BaseEstimator):
     def __repr__(self):
         """Detailed representation of the continuous action selector."""
         return self.__str__()
+
+    def predict_actions_with_path(self, X):
+        """
+        Predict continuous action sequence and return decision paths for interpretability.
+        
+        Args:
+            X (pandas.DataFrame): Time series features
+            
+        Returns:
+            tuple: (continuous_actions, paths) where paths contain traversal info
+        """
+        if self._tree is None:
+            raise ValueError("Continuous action selector must be fitted before making predictions")
+        
+        continuous_actions = []
+        paths = []
+        
+        for t in range(len(X)):
+            action_idx, path = self._tree.predict_one_with_path(X.iloc[t], train=False)
+            continuous_action = self._action_index_to_continuous(action_idx)
+            continuous_actions.append(continuous_action)
+            paths.append(path)
+        
+        return continuous_actions, paths
+
+    def predict_single_action_with_path(self, X_instance):
+        """
+        Predict a single continuous action and return the decision path.
+        
+        Args:
+            X_instance: Single instance (pandas Series or similar)
+            
+        Returns:
+            tuple: (continuous_action, path) where path contains decision steps
+        """
+        if self._tree is None:
+            raise ValueError("Continuous action selector must be fitted before making predictions")
+        
+        action_idx, path = self._tree.predict_one_with_path(X_instance, train=False)
+        continuous_action = self._action_index_to_continuous(action_idx)
+        
+        return continuous_action, path

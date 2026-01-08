@@ -308,3 +308,41 @@ class GATreeRegressor(RegressorMixin, GATree):
             
         except Exception as e:
             raise RuntimeError(f"Failed to fit GATreeRegressor: {str(e)}") from e
+
+    def predict_with_path(self, X):
+        """
+        Predict values and return decision paths for interpretability.
+        
+        Args:
+            X (pandas.DataFrame): Input features
+            
+        Returns:
+            tuple: (predictions, paths) where paths contains the node traversal information
+        """
+        if self._tree is None:
+            raise ValueError("Regressor must be fitted before making predictions")
+        
+        predictions = []
+        paths = []
+        
+        for i in range(len(X)):
+            pred, path = self._tree.predict_one_with_path(X.iloc[i], train=False)
+            predictions.append(pred)
+            paths.append(path)
+        
+        return predictions, paths
+
+    def predict_single_with_path(self, X_instance):
+        """
+        Predict a single instance and return the decision path.
+        
+        Args:
+            X_instance: Single instance (pandas Series or similar)
+            
+        Returns:
+            tuple: (prediction, path) where path contains the decision steps
+        """
+        if self._tree is None:
+            raise ValueError("Regressor must be fitted before making predictions")
+        
+        return self._tree.predict_one_with_path(X_instance, train=False)
