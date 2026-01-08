@@ -25,17 +25,20 @@ def create_synthetic_market_data(n_timesteps=100, random_state=42):
     """
     np.random.seed(random_state)
     
-    # Generate market features
-    # Feature 1: Market volatility indicator
-    volatility = np.random.uniform(0.1, 0.5, n_timesteps)
+    # Generate market features with more variation
+    # Feature 1: Market volatility indicator (varies more dramatically)
+    volatility_base = np.sin(np.linspace(0, 6*np.pi, n_timesteps)) * 0.15 + 0.25
+    volatility = np.clip(volatility_base + np.random.randn(n_timesteps) * 0.05, 0.05, 0.6)
     
-    # Feature 2: Trend indicator (momentum)
-    trend = np.cumsum(np.random.randn(n_timesteps) * 0.1)
+    # Feature 2: Trend indicator (momentum) - more pronounced trends
+    trend_changes = np.random.choice([-1, 0, 1], n_timesteps, p=[0.3, 0.4, 0.3])
+    trend = np.cumsum(trend_changes * 0.02) + np.random.randn(n_timesteps) * 0.01
     trend = (trend - trend.min()) / (trend.max() - trend.min())  # Normalize to [0, 1]
     
-    # Feature 3: Market sentiment (oscillating)
-    sentiment = 0.5 + 0.3 * np.sin(np.linspace(0, 4*np.pi, n_timesteps)) + np.random.randn(n_timesteps) * 0.1
-    sentiment = np.clip(sentiment, 0, 1)
+    # Feature 3: Market sentiment (more dynamic oscillations)
+    sentiment_base = 0.5 + 0.4 * np.sin(np.linspace(0, 8*np.pi, n_timesteps))
+    sentiment_noise = np.random.randn(n_timesteps) * 0.15
+    sentiment = np.clip(sentiment_base + sentiment_noise, 0, 1)
     
     X = pd.DataFrame({
         'volatility': volatility,
@@ -43,8 +46,15 @@ def create_synthetic_market_data(n_timesteps=100, random_state=42):
         'sentiment': sentiment
     })
     
-    # Generate market returns and risk-free rate
-    market_returns = np.random.randn(n_timesteps) * volatility + trend * 0.02
+    # Generate market returns that depend more strongly on features
+    base_returns = np.random.randn(n_timesteps) * 0.02
+    
+    # Returns influenced by trend and sentiment
+    trend_effect = (trend - 0.5) * 0.04  # Strong trend effect
+    sentiment_effect = (sentiment - 0.5) * 0.03  # Sentiment effect
+    volatility_effect = np.random.randn(n_timesteps) * volatility * 2.0  # Volatility effect
+    
+    market_returns = base_returns + trend_effect + sentiment_effect + volatility_effect
     risk_free_rate = np.full(n_timesteps, 0.001)  # 0.1% per period
     
     Y = pd.DataFrame({
@@ -76,22 +86,35 @@ def portfolio_reward_function(state, action, y_data, timestep, previous_action):
         risk_free_rate = float(y_data['risk_free_rate'])
         volatility = float(y_data['volatility'])
         
+        # Get state features
+        trend = float(state['trend'])
+        sentiment = float(state['sentiment'])
+        
         # Calculate portfolio return
         # action = 0: all in risk-free asset
         # action = 1: all in risky asset
         portfolio_return = action * market_return + (1 - action) * risk_free_rate
         
-        # Calculate risk penalty (higher allocation to risky asset = higher risk)
-        risk_penalty = 0.5 * (action ** 2) * volatility
+        # Dynamic risk penalty based on market conditions
+        # Higher penalty when volatility is high or sentiment is low
+        risk_multiplier = 1.0 + volatility + (1.0 - sentiment)
+        risk_penalty = 0.3 * (action ** 2) * risk_multiplier
+        
+        # Trend-following bonus: reward higher allocation when trend is positive
+        trend_bonus = 0.1 * action * max(0, trend - 0.5)  # Bonus when trend > 0.5
         
         # Transaction cost penalty for changing allocation
         transaction_cost = 0.0
         if previous_action is not None:
             allocation_change = abs(action - previous_action)
-            transaction_cost = 0.01 * allocation_change  # 1% cost per unit change
+            transaction_cost = 0.02 * allocation_change  # 2% cost per unit change
         
-        # Total reward = return - risk penalty - transaction costs
-        reward = portfolio_return - risk_penalty - transaction_cost
+        # Diversification bonus: small reward for moderate allocations (avoid extremes)
+        diversification_bonus = 0.05 * (1.0 - abs(action - 0.5) * 2)  # Max bonus at action=0.5
+        
+        # Total reward
+        reward = (portfolio_return + trend_bonus + diversification_bonus 
+                 - risk_penalty - transaction_cost)
         
         return reward
         
@@ -160,12 +183,12 @@ def main():
     selector = GATreeContinuousActionSelector(
         reward_function=portfolio_reward_function,
         action_bounds=(0, 1),  # 0 = all risk-free, 1 = all risky
-        max_depth=6,
+        max_depth=8,  # Increased depth to allow more complex strategies
         discount_factor=0.99,  # Slight preference for immediate rewards
         discount_direction='forward',
         global_reward_function=global_portfolio_reward,
-        global_reward_weight=0.2,  # 20% weight on global reward
-        n_action_bins=50,  # Fine-grained continuous actions
+        global_reward_weight=0.3,  # Increased weight on global reward
+        n_action_bins=100,  # More fine-grained continuous actions
         random_state=42
     )
     
@@ -179,24 +202,40 @@ def main():
     
     selector.fit(
         X_train, Y_train,
-        population_size=50,
-        max_iter=100,
-        mutation_probability=0.2,
-        elite_size=5,
-        selection_tournament_size=3,
+        population_size=100,  # Increased population for more diversity
+        max_iter=200,  # More iterations
+        mutation_probability=0.25,  # Higher mutation for exploration
+        elite_size=10,  # More elites to preserve diversity
+        selection_tournament_size=5,  # Larger tournament size
         progress_callback=progress_callback,
         early_stopping=True,
-        patience=20,
-        min_delta=1e-4
+        patience=30,  # More patience
+        min_delta=1e-5  # Smaller delta for finer improvements
     )
     
     print(f"\nTraining completed!")
     print(f"Final tree depth: {selector._tree.max_depth()}")
     print(f"Final tree size: {selector._tree.size()}")
     
+    # Debug: Print tree structure
+    print(f"\nTree Analysis:")
+    if selector._tree.size() == 1:
+        print("  WARNING: Tree is just a single leaf node!")
+        print(f"  Leaf action index: {selector._tree.att_value}")
+        print(f"  Corresponding continuous action: {selector._action_index_to_continuous(selector._tree.att_value):.4f}")
+    else:
+        print(f"  Tree has {selector._tree.size()} nodes with depth {selector._tree.max_depth()}")
+    
     # Make predictions on test data
     print("\nMaking predictions on test data...")
     test_actions = selector.predict_actions(X_test)
+    
+    # Debug: Check if all actions are the same
+    unique_actions = len(set(test_actions))
+    print(f"Number of unique actions predicted: {unique_actions}")
+    if unique_actions == 1:
+        print(f"WARNING: All actions are the same: {test_actions[0]:.4f}")
+        print("This suggests the tree learned a very simple strategy.")
     
     # Get action statistics
     action_stats = selector.get_action_statistics(X_test)
