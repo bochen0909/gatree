@@ -62,6 +62,14 @@ class Node:
         copy.y_pred = node.y_pred
         return copy
 
+    @staticmethod
+    def _rand_index(rng, high):
+        if high is None or high <= 0:
+            return 0
+        if hasattr(rng, "randrange"):
+            return rng.randrange(high)
+        return int(rng.randint(0, high))
+
     def set_left(self, n):
         """
         Sets the left child of this node to the given node. Also sets the parent of the given node to this node.
@@ -169,6 +177,34 @@ class Node:
         r_depth = Node.max_depth_helper(n.right, visited.copy())
         return max(l_depth, r_depth) + 1
 
+    @staticmethod
+    def enforce_max_depth(root, max_depth, class_count, random):
+        if root is None or max_depth is None:
+            return root
+        return Node._enforce_max_depth(root.get_root(), 1, max_depth, class_count, random)
+
+    @staticmethod
+    def _enforce_max_depth(node, depth, max_depth, class_count, random):
+        if node is None:
+            return None
+        if depth >= max_depth:
+            node.att_index = -1
+            node.att_value = Node._rand_index(random, class_count)
+            node.left = None
+            node.right = None
+            return node
+        if node.att_index == -1:
+            node.left = None
+            node.right = None
+            return node
+        node.left = Node._enforce_max_depth(node.left, depth + 1, max_depth, class_count, random)
+        if node.left is not None:
+            node.left.parent = node
+        node.right = Node._enforce_max_depth(node.right, depth + 1, max_depth, class_count, random)
+        if node.right is not None:
+            node.right.parent = node
+        return node
+
     def size(self):
         """
         Size is the number of all nodes (mid-tree nodes + leaves) in the trees.
@@ -203,7 +239,7 @@ class Node:
         visited.add(node_id)
         return Node.size_helper(n.left, visited.copy()) + Node.size_helper(n.right, visited.copy()) + 1
 
-    def make_node(self, depth=0, max_depth=None, random=None, att_indexes=None, att_values=None, class_count=None):
+    def make_node(self, depth=1, max_depth=None, random=None, att_indexes=None, att_values=None, class_count=None):
         """
         Randomly generates the node and its children. The depth of the tree and the maximum depth of the tree can be specified. The random number generator, attribute indexes, attribute values, and number of classes must be provided.
 
@@ -223,29 +259,21 @@ class Node:
         value_index = None
         att_value = None
         if max_depth == None:
-            max_depth = depth
-
-        def _rand_index(rng, high):
-            if high <= 0:
-                return 0
-            if hasattr(rng, "randrange"):
-                return rng.randrange(high)
-            return int(rng.randint(0, high))
+            max_depth = depth + 2
 
         try:
-            # if it's the root, first level or 50/50 chance of building new children.
-            # Must be below maximal depth.
-            if (depth <= 1 or (random.choice([True, False])) and depth < max_depth):
+            # Build children only when below maximal depth.
+            if depth < max_depth and (depth == 1 or random.choice([True, False])):
                 if len(att_indexes) == 0:
                     # No attributes available, create a leaf
-                    r = _rand_index(random, class_count)
+                    r = Node._rand_index(random, class_count)
                     node = Node(att_index=-1, att_value=r)
                 else:
-                    subset_index = _rand_index(random, len(att_indexes))
+                    subset_index = Node._rand_index(random, len(att_indexes))
                     att_index = att_indexes[subset_index]
                     
                     if att_index in att_values and len(att_values[att_index]) > 0:
-                        value_index = _rand_index(random, len(att_values[att_index]))
+                        value_index = Node._rand_index(random, len(att_values[att_index]))
                         att_value = att_values[att_index][value_index]
                         node = Node(att_index=att_index, att_value=att_value)
                         
@@ -257,25 +285,25 @@ class Node:
                         
                         # Ensure children are not None
                         if left_child is None:
-                            left_child = Node(att_index=-1, att_value=_rand_index(random, class_count))
+                            left_child = Node(att_index=-1, att_value=Node._rand_index(random, class_count))
                         if right_child is None:
-                            right_child = Node(att_index=-1, att_value=_rand_index(random, class_count))
+                            right_child = Node(att_index=-1, att_value=Node._rand_index(random, class_count))
                             
                         node.set_left(left_child)
                         node.set_right(right_child)
                     else:
                         # No valid attribute values, create a leaf
-                        r = _rand_index(random, class_count)
+                        r = Node._rand_index(random, class_count)
                         node = Node(att_index=-1, att_value=r)
             else:  # result (leaf)
-                r = _rand_index(random, class_count)
+                r = Node._rand_index(random, class_count)
                 node = Node(att_index=-1, att_value=r)
         except Exception as e:
             print(f"{att_index};{att_value};{value_index}")
             print("Error:", e)
             # Create a simple leaf node as fallback
             try:
-                r = _rand_index(random, class_count)
+                r = Node._rand_index(random, class_count)
                 node = Node(att_index=-1, att_value=r)
             except:
                 node = Node(att_index=-1, att_value=0)

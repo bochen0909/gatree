@@ -242,21 +242,41 @@ class GATreeRegressor(RegressorMixin, GATree):
 
                                 # Crossover between selected trees
                                 crossover1 = Crossover.crossover(
-                                    tree1=tree1, tree2=tree2, random=self.random)
+                                    tree1=tree1,
+                                    tree2=tree2,
+                                    random=self.random,
+                                    max_depth=self.max_depth,
+                                    class_count=self.class_count
+                                )
                                 crossover2 = Crossover.crossover(
-                                    tree1=tree2, tree2=tree1, random=self.random)
+                                    tree1=tree2,
+                                    tree2=tree1,
+                                    random=self.random,
+                                    max_depth=self.max_depth,
+                                    class_count=self.class_count
+                                )
 
                                 # Mutation of new trees
                                 mutation1 = crossover1
                                 mutation2 = crossover2
                                 if self.random.random() < mutation_probability:
-                                    mutation1 = Mutation.mutation(root=crossover1, att_indexes=self.att_indexes,
-                                                                  att_values=self.att_values, class_count=self.class_count,
-                                                                  random=self.random)
+                                    mutation1 = Mutation.mutation(
+                                        root=crossover1,
+                                        att_indexes=self.att_indexes,
+                                        att_values=self.att_values,
+                                        class_count=self.class_count,
+                                        random=self.random,
+                                        max_depth=self.max_depth
+                                    )
                                 if self.random.random() < mutation_probability:
-                                    mutation2 = Mutation.mutation(root=crossover2, att_indexes=self.att_indexes,
-                                                                  att_values=self.att_values, class_count=self.class_count,
-                                                                  random=self.random)
+                                    mutation2 = Mutation.mutation(
+                                        root=crossover2,
+                                        att_indexes=self.att_indexes,
+                                        att_values=self.att_values,
+                                        class_count=self.class_count,
+                                        random=self.random,
+                                        max_depth=self.max_depth
+                                    )
 
                                 # Add new trees to descendant population
                                 descendant.extend([mutation1, mutation2])

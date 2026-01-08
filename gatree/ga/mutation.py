@@ -6,7 +6,7 @@ class Mutation:
     Class implementing the mutation operator for the genetic algorithm.
     """
     @staticmethod
-    def mutation(root, att_indexes, att_values, class_count, random):
+    def mutation(root, att_indexes, att_values, class_count, random, max_depth=None):
         """
         Mutation introduces random changes to a tree to maintain genetic diversity and explore new solutions. This helps in avoiding local optima by introducing new genetic structures.
 
@@ -56,7 +56,10 @@ class Mutation:
                 else:
                     break
 
-        return node.get_root()
+        result = node.get_root()
+        if max_depth is not None:
+            result = Node.enforce_max_depth(result, max_depth, class_count, random)
+        return result
 
     @staticmethod
     def mutate_leaf(node, att_indexes, att_values, class_count, random):

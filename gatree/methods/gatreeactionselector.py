@@ -109,6 +109,11 @@ class GATreeActionSelector(GATree, BaseEstimator):
         Returns:
             float: Fitness value (lower is better, so we negate rewards)
         """
+        if root is None or not callable(getattr(root, "predict_one", None)):
+            return float('inf')
+        if getattr(root, "att_index", None) is None and getattr(root, "att_value", None) is None:
+            return float('inf')
+
         total_reward = 0.0
         n_timesteps = len(X)
         individual_rewards = []
@@ -375,8 +380,20 @@ class GATreeActionSelector(GATree, BaseEstimator):
                                 )
 
                                 # Crossover between selected trees
-                                crossover1 = Crossover.crossover(tree1=tree1, tree2=tree2, random=self.random)
-                                crossover2 = Crossover.crossover(tree1=tree2, tree2=tree1, random=self.random)
+                                crossover1 = Crossover.crossover(
+                                    tree1=tree1,
+                                    tree2=tree2,
+                                    random=self.random,
+                                    max_depth=self.max_depth,
+                                    class_count=self.class_count
+                                )
+                                crossover2 = Crossover.crossover(
+                                    tree1=tree2,
+                                    tree2=tree1,
+                                    random=self.random,
+                                    max_depth=self.max_depth,
+                                    class_count=self.class_count
+                                )
 
                                 # Mutation of new trees
                                 mutation1 = crossover1
@@ -388,7 +405,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
                                         att_indexes=self.att_indexes,
                                         att_values=self.att_values, 
                                         class_count=self.class_count,
-                                        random=self.random
+                                        random=self.random,
+                                        max_depth=self.max_depth
                                     )
                                 
                                 if self.random.random() < mutation_probability:
@@ -397,7 +415,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
                                         att_indexes=self.att_indexes,
                                         att_values=self.att_values, 
                                         class_count=self.class_count,
-                                        random=self.random
+                                        random=self.random,
+                                        max_depth=self.max_depth
                                     )
 
                                 # Add new trees to descendant population

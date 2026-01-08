@@ -5,7 +5,7 @@ class Crossover:
     """
     Class implementing the crossover operator for the genetic algorithm.
     """
-    def crossover(tree1, tree2, random):
+    def crossover(tree1, tree2, random, max_depth=None, class_count=None):
         """
         Crossover is a genetic operator used to combine the genetic information of two parent trees to generate new offspring. This enables exploration, which helps in creating diversity in the population and combining good traits from both parents.
 
@@ -88,7 +88,13 @@ class Crossover:
                 p.set_left(n2)
             else:
                 p.set_right(n2)
-            return p.get_root()
+            result = p.get_root()
+            if max_depth is not None:
+                result = Node.enforce_max_depth(result, max_depth, class_count, random)
+            return result
         
         # Return original tree if crossover failed
-        return Node.copy(tree1)
+        result = Node.copy(tree1)
+        if max_depth is not None:
+            result = Node.enforce_max_depth(result, max_depth, class_count, random)
+        return result
