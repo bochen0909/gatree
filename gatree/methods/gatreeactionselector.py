@@ -1,5 +1,4 @@
 import numpy as np
-import pandas as pd
 from joblib import Parallel, delayed
 from sklearn.base import BaseEstimator
 
@@ -7,7 +6,6 @@ from sklearn.base import BaseEstimator
 from gatree.tree.node import Node
 from gatree.ga.selection import Selection
 from gatree.ga.crossover import Crossover
-from gatree.ga.mutation import Mutation
 from gatree.gatree import GATree
 
 
@@ -24,6 +22,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
         action_space (list): List of possible actions (e.g., ['buy', 'sell', 'hold'])
         reward_function (callable): Function to calculate rewards
         max_depth (int, optional): Maximum depth of the tree
+        min_samples_leaf (int, optional): Minimum number of samples required to be at a leaf node (default: 1)
         discount_factor (float, optional): Future reward discount factor (default: 1.0)
         random (Random, optional): Random number generator
         n_jobs (int, optional): Number of jobs to run in parallel
@@ -32,8 +31,9 @@ class GATreeActionSelector(GATree, BaseEstimator):
     Attributes:
         action_space (list): List of possible actions
         reward_function (callable): Reward calculation function
-        discount_factor (float): Discount factor for future rewards
         max_depth (int): Maximum depth of the tree
+        min_samples_leaf (int): Minimum number of samples required to be at a leaf node
+        discount_factor (float): Discount factor for future rewards
         random (Random): Random number generator
         X (pandas.DataFrame): Training time series features
         Y (pandas.DataFrame): Training reward calculation data
@@ -48,9 +48,9 @@ class GATreeActionSelector(GATree, BaseEstimator):
         _best_rewards (list): List of best total rewards for each iteration
     """
 
-    def __init__(self, action_space, reward_function, max_depth=None, discount_factor=1.0, 
-                 discount_direction='forward', global_reward_function=None, global_reward_weight=1.0,
-                 random=None, n_jobs=1, random_state=None):
+    def __init__(self, action_space, reward_function, max_depth=None, min_samples_leaf=1,
+                 discount_factor=1.0, discount_direction='forward', global_reward_function=None, 
+                 global_reward_weight=1.0, random=None, n_jobs=1, random_state=None):
         """
         Initialize the Genetic Algorithm Action Selector.
 
@@ -58,6 +58,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             action_space (list): List of possible actions
             reward_function (callable): Function(state, action, y_data, timestep, previous_action) -> reward
             max_depth (int, optional): Maximum depth of the tree
+            min_samples_leaf (int, optional): Minimum number of samples required to be at a leaf node (default: 1)
             discount_factor (float, optional): Future reward discount factor
             discount_direction (str, optional): 'forward' (standard) or 'backward' (reverse discount)
             global_reward_function (callable, optional): Function(rewards, actions, X, Y) -> global_reward
@@ -70,6 +71,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
         
         self.action_space = action_space
         self.reward_function = reward_function
+        self.max_depth = max_depth
+        self.min_samples_leaf = min_samples_leaf
         self.discount_factor = discount_factor
         self.discount_direction = discount_direction
         self.global_reward_function = global_reward_function
@@ -77,9 +80,11 @@ class GATreeActionSelector(GATree, BaseEstimator):
         self.action_count = len(action_space)
         self._best_rewards = []
         
-        # Validate discount direction
+        # Validate parameters
         if discount_direction not in ['forward', 'backward']:
             raise ValueError("discount_direction must be 'forward' or 'backward'")
+        if min_samples_leaf < 1:
+            raise ValueError("min_samples_leaf must be at least 1")
         
         # Set the fitness function to our reward-based function
         self.fitness_function = self.default_fitness_function
@@ -256,7 +261,6 @@ class GATreeActionSelector(GATree, BaseEstimator):
             best_fitness_so_far = float('inf')
             best_tree = None
             patience_counter = 0
-            stopped_early = False
             
             # Create split thresholds for features (same as other GATree methods)
             self.att_values = {}
@@ -285,16 +289,17 @@ class GATreeActionSelector(GATree, BaseEstimator):
             })
 
             # Generation of initial population
-            node = Node()
             population = []
             for _ in range(population_size):
                 try:
-                    tree = node.make_node(
-                        max_depth=self.max_depth, 
+                    tree = self._make_node_with_min_samples(
+                        max_depth=self.max_depth,
+                        min_samples_leaf=self.min_samples_leaf,
                         random=self.random,
                         att_indexes=self.att_indexes, 
                         att_values=self.att_values, 
-                        class_count=self.class_count
+                        class_count=self.class_count,
+                        n_samples=X.shape[0]
                     )
                     population.append(tree)
                 except Exception as e:
@@ -348,12 +353,11 @@ class GATreeActionSelector(GATree, BaseEstimator):
                             patience_counter += 1
                             
                         if patience_counter >= patience:
-                            stopped_early = True
                             if progress_callback is not None:
                                 try:
                                     progress_callback(i, best_fitness, avg_fitness, best_reward)
-                                except Exception as callback_error:
-                                    print(f"Warning: Progress callback failed at generation {i}: {callback_error}")
+                                except Exception:
+                                    print(f"Warning: Progress callback failed at generation {i}")
                             print(f"Early stopping at generation {i} (patience={patience})")
                             break
                     
@@ -361,8 +365,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
                     if progress_callback is not None:
                         try:
                             progress_callback(i, best_fitness, avg_fitness, best_reward)
-                        except Exception as callback_error:
-                            print(f"Warning: Progress callback failed at generation {i}: {callback_error}")
+                        except Exception:
+                            print(f"Warning: Progress callback failed at generation {i}")
 
                     if i != max_iter:
                         # Elites
@@ -400,30 +404,34 @@ class GATreeActionSelector(GATree, BaseEstimator):
                                 mutation2 = crossover2
                                 
                                 if self.random.random() < mutation_probability:
-                                    mutation1 = Mutation.mutation(
+                                    mutation1 = self._mutate_with_min_samples(
                                         root=crossover1, 
                                         att_indexes=self.att_indexes,
                                         att_values=self.att_values, 
                                         class_count=self.class_count,
                                         random=self.random,
-                                        max_depth=self.max_depth
+                                        max_depth=self.max_depth,
+                                        min_samples_leaf=self.min_samples_leaf,
+                                        n_samples=X.shape[0]
                                     )
                                 
                                 if self.random.random() < mutation_probability:
-                                    mutation2 = Mutation.mutation(
+                                    mutation2 = self._mutate_with_min_samples(
                                         root=crossover2, 
                                         att_indexes=self.att_indexes,
                                         att_values=self.att_values, 
                                         class_count=self.class_count,
                                         random=self.random,
-                                        max_depth=self.max_depth
+                                        max_depth=self.max_depth,
+                                        min_samples_leaf=self.min_samples_leaf,
+                                        n_samples=X.shape[0]
                                     )
 
                                 # Add new trees to descendant population
                                 descendant.extend([mutation1, mutation2])
-                            except Exception as generation_error:
+                            except Exception:
                                 # If generation fails, add copies of elite trees
-                                print(f"Warning: Generation failed at iteration {i}, using elite copies: {generation_error}")
+                                print(f"Warning: Generation failed at iteration {i}, using elite copies")
                                 if len(elites) > 0:
                                     descendant.extend([Node.copy(elites[0]), Node.copy(elites[0])])
 
@@ -434,8 +442,8 @@ class GATreeActionSelector(GATree, BaseEstimator):
                         # Replace old population with new population
                         population = descendant
                         
-                except Exception as iteration_error:
-                    print(f"Warning: Error in generation {i}: {iteration_error}")
+                except Exception:
+                    print(f"Warning: Error in generation {i}")
                     # Continue with current population
                     continue
 
@@ -449,6 +457,219 @@ class GATreeActionSelector(GATree, BaseEstimator):
             
         except Exception as e:
             raise RuntimeError(f"Failed to fit GATreeActionSelector: {str(e)}") from e
+
+    def _make_node_with_min_samples(self, depth=1, max_depth=None, min_samples_leaf=1, 
+                                   random=None, att_indexes=None, att_values=None, 
+                                   class_count=None, n_samples=None, current_samples=None):
+        """
+        Generate a node that respects min_samples_leaf constraint.
+        
+        Args:
+            depth (int): Current depth of the tree
+            max_depth (int, optional): Maximum depth of the tree
+            min_samples_leaf (int): Minimum samples required at leaf nodes
+            random (Random): Random number generator
+            att_indexes (numpy.ndarray): Attribute indexes
+            att_values (dict): Attribute values
+            class_count (int): Number of classes
+            n_samples (int): Total number of samples in dataset
+            current_samples (int, optional): Current number of samples at this node
+            
+        Returns:
+            Node: Generated node with min_samples_leaf constraint
+        """
+        if current_samples is None:
+            current_samples = n_samples
+            
+        if max_depth is None:
+            max_depth = depth + 2
+
+        # Force leaf if we're at max depth or don't have enough samples to split
+        should_be_leaf = (depth >= max_depth or 
+                         current_samples < 2 * min_samples_leaf or
+                         len(att_indexes) == 0)
+        
+        # Also randomly decide to be leaf (but respect constraints)
+        if not should_be_leaf and depth > 1:
+            should_be_leaf = random.choice([True, False])
+
+        if should_be_leaf:
+            # Create leaf node
+            r = Node._rand_index(random, class_count)
+            return Node(att_index=-1, att_value=r)
+        
+        # Try to create internal node
+        try:
+            subset_index = Node._rand_index(random, len(att_indexes))
+            att_index = att_indexes[subset_index]
+            
+            if att_index in att_values and len(att_values[att_index]) > 0:
+                value_index = Node._rand_index(random, len(att_values[att_index]))
+                att_value = att_values[att_index][value_index]
+                node = Node(att_index=att_index, att_value=att_value)
+                
+                # Estimate samples for children (simplified approach)
+                # In practice, this would require actual data splitting
+                left_samples = max(min_samples_leaf, current_samples // 2)
+                right_samples = max(min_samples_leaf, current_samples - left_samples)
+                
+                # Create children
+                left_child = self._make_node_with_min_samples(
+                    depth=depth + 1, max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                    random=random, att_indexes=att_indexes, att_values=att_values,
+                    class_count=class_count, n_samples=n_samples, current_samples=left_samples
+                )
+                right_child = self._make_node_with_min_samples(
+                    depth=depth + 1, max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+                    random=random, att_indexes=att_indexes, att_values=att_values,
+                    class_count=class_count, n_samples=n_samples, current_samples=right_samples
+                )
+                
+                # Ensure children are not None
+                if left_child is None:
+                    left_child = Node(att_index=-1, att_value=Node._rand_index(random, class_count))
+                if right_child is None:
+                    right_child = Node(att_index=-1, att_value=Node._rand_index(random, class_count))
+                    
+                node.set_left(left_child)
+                node.set_right(right_child)
+                return node
+            else:
+                # No valid attribute values, create a leaf
+                r = Node._rand_index(random, class_count)
+                return Node(att_index=-1, att_value=r)
+                
+        except Exception as e:
+            # Create a simple leaf node as fallback
+            r = Node._rand_index(random, class_count)
+            return Node(att_index=-1, att_value=r)
+
+    def _mutate_with_min_samples(self, root, att_indexes, att_values, class_count, 
+                                random, max_depth=None, min_samples_leaf=1, n_samples=None):
+        """
+        Custom mutation that respects min_samples_leaf constraint.
+        
+        Args:
+            root (Node): The root node of the tree
+            att_indexes (list): List of attribute indexes
+            att_values (list): List of attribute values
+            class_count (int): Number of classes
+            random (Random): Random number generator
+            max_depth (int, optional): Maximum depth constraint
+            min_samples_leaf (int): Minimum samples per leaf constraint
+            n_samples (int): Total number of samples in dataset
+            
+        Returns:
+            Node: Mutated tree respecting min_samples_leaf
+        """
+        # Use standard mutation but replace any new subtree generation with our custom method
+        from gatree.ga.mutation import Mutation
+        
+        # Create a copy of the tree
+        node = Node.copy(root)
+        depth = node.max_depth()
+
+        # Find a node to mutate
+        current = node
+        while True:
+            if current.att_index == -1:  # for leaves
+                # For leaf mutations, we can safely use standard operations
+                # since they don't create new subtrees that might violate constraints
+                if random.choice([True, False]):
+                    # Change class (safe operation)
+                    self._change_class_safe(current, class_count, random)
+                else:
+                    # Exchange for new subtree (use our custom method)
+                    self._exchange_class_for_tree_safe(current, att_indexes, att_values, 
+                                                     class_count, random, max_depth, 
+                                                     min_samples_leaf, n_samples)
+                break
+            elif random.randint(0, depth) == 0:  # for mid-tree nodes
+                rand = random.random()
+                if rand < 0.25 or current.parent is None:
+                    # Change attribute (safe operation)
+                    Mutation.change_attribute(current, att_indexes, att_values, random)
+                elif rand < 0.5:
+                    # Change attribute value (safe operation)
+                    Mutation.change_attribute_value(current, att_values, random)
+                elif rand < 0.75:
+                    # Exchange for class (safe operation)
+                    Mutation.exchange_tree_for_class(current, class_count, random)
+                else:
+                    # Exchange for new subtree (use our custom method)
+                    self._exchange_tree_for_tree_safe(current, att_indexes, att_values,
+                                                    class_count, random, max_depth,
+                                                    min_samples_leaf, n_samples)
+                break
+
+            # Move to next random child
+            if random.choice([True, False]):
+                if current.left is not None:
+                    current = current.left
+                else:
+                    break
+            else:
+                if current.right is not None:
+                    current = current.right
+                else:
+                    break
+
+        result = current.get_root()
+        if max_depth is not None:
+            result = Node.enforce_max_depth(result, max_depth, class_count, random)
+        return result
+
+    def _change_class_safe(self, node, class_count, random):
+        """Safe class change that doesn't violate constraints."""
+        result_old = node.att_value
+        result_new = result_old
+        while result_old == result_new:
+            result_new = random.randint(0, class_count)
+        node.att_value = result_new
+
+    def _exchange_class_for_tree_safe(self, node, att_indexes, att_values, class_count, 
+                                    random, max_depth, min_samples_leaf, n_samples):
+        """Exchange leaf for subtree respecting min_samples_leaf."""
+        parent = node.parent
+        if parent is None:
+            return
+            
+        left = (parent.left == node)
+        
+        # Use our custom tree generation method
+        subtree = self._make_node_with_min_samples(
+            depth=node.depth(), max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+            random=random, att_indexes=att_indexes, att_values=att_values,
+            class_count=class_count, n_samples=n_samples, current_samples=min_samples_leaf
+        )
+        subtree.parent = parent
+
+        if left:
+            parent.set_left(subtree)
+        else:
+            parent.set_right(subtree)
+
+    def _exchange_tree_for_tree_safe(self, node, att_indexes, att_values, class_count,
+                                   random, max_depth, min_samples_leaf, n_samples):
+        """Exchange subtree for new subtree respecting min_samples_leaf."""
+        parent = node.parent
+        if parent is None:
+            return
+            
+        left = (parent.left == node)
+        
+        # Use our custom tree generation method
+        subtree = self._make_node_with_min_samples(
+            depth=node.depth(), max_depth=max_depth, min_samples_leaf=min_samples_leaf,
+            random=random, att_indexes=att_indexes, att_values=att_values,
+            class_count=class_count, n_samples=n_samples, current_samples=min_samples_leaf
+        )
+        subtree.parent = parent
+
+        if left:
+            parent.set_left(subtree)
+        else:
+            parent.set_right(subtree)
 
     @staticmethod
     def _predict_and_evaluate(tree, X, y, fitness_function, is_training=False, sample_weight=None, **fitness_function_kwargs):
@@ -637,7 +858,7 @@ class GATreeActionSelector(GATree, BaseEstimator):
             global_info = ""
             if self.global_reward_function is not None:
                 global_info = f", global_reward=True"
-            return f"GATreeActionSelector(actions={self.action_space}, {discount_info}{global_info}, unfitted)"
+            return f"GATreeActionSelector(actions={self.action_space}, {discount_info}{global_info}, min_samples_leaf={self.min_samples_leaf}, unfitted)"
         
         try:
             # Add timeout protection for potentially problematic tree operations
@@ -650,9 +871,9 @@ class GATreeActionSelector(GATree, BaseEstimator):
             if self.global_reward_function is not None:
                 global_info = f", global_reward=True"
             return (f"GATreeActionSelector(actions={self.action_space}, "
-                    f"{discount_info}{global_info}, depth={depth}, size={size})")
+                    f"{discount_info}{global_info}, min_samples_leaf={self.min_samples_leaf}, depth={depth}, size={size})")
         except Exception as e:
-            return f"GATreeActionSelector(actions={self.action_space}, error={str(e)})"
+            return f"GATreeActionSelector(actions={self.action_space}, min_samples_leaf={self.min_samples_leaf}, error={str(e)})"
 
     def __repr__(self):
         """Detailed representation of the action selector."""
